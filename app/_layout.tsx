@@ -37,10 +37,12 @@ function RootNavigator() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+    <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="auth" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="streak" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+      <Stack.Screen name="latihan/[sesiId]" options={{ animation: 'slide_from_right' }} />
     </Stack>
   );
 }
