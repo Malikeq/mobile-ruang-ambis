@@ -7,15 +7,45 @@ import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
+import { Ionicons } from '@expo/vector-icons';
+
 
 const { width } = Dimensions.get('window');
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-interface Target { kampus: string; akronim: string; jurusan: string; target_nilai: number; skor_saat_ini: number; }
+// Flat shape (what TargetScoreCard expects)
+interface Target {
+  kampusLabel: string;   // display name (akronim or nama)
+  jurusanLabel: string;  // display name
+  target_nilai: number;
+  skor_saat_ini: number;
+}
+// Raw API shape (backend may return nested objects OR flat strings)
+interface TargetRaw {
+  kampus:        any;  // string | { nama: string; akronim?: string; }
+  jurusan:       any;  // string | { nama: string; passing_grade_estimate?: number; }
+  target_nilai?: number;
+  skor_saat_ini?:number;
+  passing_grade_estimate?: number;
+}
+function normalizeTarget(raw: TargetRaw): Target {
+  const k = raw.kampus;
+  const j = raw.jurusan;
+  return {
+    kampusLabel:   typeof k === 'string' ? k : (k?.akronim || k?.nama || 'PTN'),
+    jurusanLabel:  typeof j === 'string' ? j : (j?.nama || 'Jurusan'),
+    target_nilai:  raw.target_nilai ?? (typeof j === 'object' ? j?.passing_grade_estimate : 0) ?? 0,
+    skor_saat_ini: raw.skor_saat_ini ?? 0,
+  };
+}
+
 interface MapelProg { mapel: string; skor: number; }
 interface DashData {
   total_soal_dijawab: number; rata_rata_skor: number;
   streak: number; longest_streak?: number;
+  skor_snbt_estimasi?: number;
+  has_skor_data?: boolean;
+  akurasi_overall?: number;
   mapel_progress?: MapelProg[];
   kelemahan?: { mapel: string; topik: string; skor: number }[];
 }
@@ -29,6 +59,7 @@ function pct(val: number, max: number) { return Math.min(100, Math.max(0, (val /
 
 // ── Streak Flame Card ──────────────────────────────────────────────────────────
 function StreakCard({ streak, longest }: { streak: number; longest: number }) {
+
   const flameScale = useRef(new Animated.Value(1)).current;
   const flameOp    = useRef(new Animated.Value(1)).current;
 
@@ -56,15 +87,17 @@ function StreakCard({ streak, longest }: { streak: number; longest: number }) {
       <View style={styles.streakGlow} />
 
       <View style={styles.streakLeft}>
-        <Text style={styles.streakBadge}>🔥 STREAK AKTIF</Text>
+        <Text style={styles.streakBadge}>{streak > 0 ? '🔥 STREAK AKTIF' : '🎯 MULAI STREAK'}</Text>
         <View style={styles.streakRow}>
           <Animated.Text style={[styles.streakFlame, { transform: [{ scale: flameScale }], opacity: flameOp }]}>
             🔥
           </Animated.Text>
-          <Text style={styles.streakCount}>{streak}</Text>
+          <Text style={styles.streakCount}>{streak > 0 ? streak : '—'}</Text>
           <Text style={styles.streakUnit}>hari</Text>
         </View>
-        <Text style={styles.streakSub}>Terpanjang: {longest} hari · Jangan putus!</Text>
+        <Text style={styles.streakSub}>
+          {streak > 0 ? `Terpanjang: ${longest} hari · Jangan putus!` : 'Mulai streak hari ini dengan latihan! 💪'}
+        </Text>
 
         {/* 7-day dots */}
         <View style={styles.streakDots}>
@@ -105,8 +138,8 @@ function TargetScoreCard({ target, rank }: { target: Target; rank: number }) {
           <Text style={[styles.targetRank, { color }]}>#{rank}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.targetKampus}>{target.akronim || target.kampus}</Text>
-          <Text style={styles.targetJurusan} numberOfLines={1}>{target.jurusan}</Text>
+          <Text style={styles.targetKampus}>{target.kampusLabel}</Text>
+          <Text style={styles.targetJurusan} numberOfLines={1}>{target.jurusanLabel}</Text>
         </View>
         <View style={[styles.targetGapBadge, { backgroundColor: gap <= 0 ? Colors.success + '20' : Colors.error + '18' }]}>
           <Text style={[styles.targetGapText, { color: gap <= 0 ? Colors.success : Colors.error }]}>
@@ -175,9 +208,11 @@ function QAction({ emoji, label, color, onPress }: { emoji: string; label: strin
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const { user, token } = useAuth();
-  const [data,      setData]     = useState<DashData | null>(null);
-  const [targets,   setTargets]  = useState<Target[]>([]);
-  const [refreshing, setRef]     = useState(false);
+  const [data,           setData]      = useState<DashData | null>(null);
+  const [targets,        setTargets]   = useState<Target[]>([]);
+  const [refreshing,     setRef]       = useState(false);
+  const [skorTarget,     setSkorTarget] = useState<number | null>(null);
+  const [namaTarget,     setNamaTarget] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -190,25 +225,31 @@ export default function HomeScreen() {
     if (isRef) setRef(true);
     try {
       const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
-      const [dashRes, targetRes] = await Promise.all([
-        fetch(`${API_BASE}/dashboard`, { headers }),
-        fetch(`${API_BASE}/user/targets`, { headers }),
+      const [dashRes, targetRes, peluangRes] = await Promise.all([
+        fetch(`${API_BASE}/dashboard`,         { headers }),
+        fetch(`${API_BASE}/user/targets`,       { headers }),
+        fetch(`${API_BASE}/user/peluang-lolos`, { headers }),
       ]);
-      const dash   = await dashRes.json();
-      const tarRes = await targetRes.json();
+      const dash    = await dashRes.json();
+      const tarRes  = await targetRes.json();
+      const peluang = await peluangRes.json();
       setData(dash?.data ?? null);
-      setTargets(tarRes?.data ?? []);
+      setTargets((tarRes?.data ?? []).map(normalizeTarget));
+      setSkorTarget(peluang?.skor_target_utama ?? null);
+      setNamaTarget(peluang?.nama_target_utama ?? null);
     } catch {
       setData({ total_soal_dijawab: 0, rata_rata_skor: 0, streak: 0 });
     } finally { setRef(false); }
   };
 
-  const streak  = data?.streak ?? 0;
-  const longest = data?.longest_streak ?? streak;
-  const soal    = data?.total_soal_dijawab ?? 0;
-  const skor    = data?.rata_rata_skor ?? 0;
-  const mapels  = data?.mapel_progress ?? [];
-  const kelems  = data?.kelemahan ?? [];
+  const streak   = data?.streak ?? 0;
+  const longest  = data?.longest_streak ?? streak;
+  const soal     = data?.total_soal_dijawab ?? 0;
+  // Use backend-computed SNBT estimasi; fallback to rata_rata_skor
+  const skor     = data?.skor_snbt_estimasi ?? data?.rata_rata_skor ?? 0;
+  const hasSkor  = data?.has_skor_data ?? (skor > 0);
+  const mapels   = data?.mapel_progress ?? [];
+  const kelems   = data?.kelemahan ?? [];
 
   return (
     <View style={styles.container}>
@@ -239,35 +280,76 @@ export default function HomeScreen() {
           </View>
 
           {/* ── Streak Card ─────────────────────────────────────── */}
-          {streak > 0 && (
-            <StreakCard streak={streak} longest={longest} />
-          )}
+          <StreakCard streak={streak} longest={longest} />
 
           {/* ── SNBT Score Hero ──────────────────────────────────── */}
-          <View style={styles.scoreHero}>
+          <TouchableOpacity style={styles.scoreHero} onPress={() => router.push('/peluang-lolos')} activeOpacity={0.88}>
+            {/* Left: user skor */}
             <View style={styles.scoreHeroLeft}>
-              <Text style={styles.scoreHeroLabel}>⚡ SKOR SNBT ESTIMASI</Text>
-              <Text style={[styles.scoreHeroValue, {
-                color: skor >= 700 ? Colors.success : skor >= 550 ? Colors.secondary : skor > 0 ? Colors.error : Colors.textMuted,
-              }]}>
-                {skor > 0 ? Math.round(skor) : '—'}
-              </Text>
-              <Text style={styles.scoreHeroSub}>
-                {skor >= 700 ? '🏆 Top 10% nasional!' : skor >= 550 ? '📈 Di atas rata-rata' : skor > 0 ? '💪 Terus tingkatkan!' : 'Kerjakan latihan untuk skor SNBT-mu'}
-              </Text>
+              <Text style={styles.scoreHeroLabel}>⚡ SKOR ESTIMASIMU</Text>
+              {hasSkor && skor > 0 ? (
+                <>
+                  <Text style={[styles.scoreHeroValue, { color: skor >= 700 ? Colors.success : skor >= 550 ? Colors.secondary : Colors.error }]}>
+                    {Math.round(skor)}
+                  </Text>
+                  <Text style={styles.scoreHeroSub}>
+                    {skor >= 700 ? '🏆 Top 10%' : skor >= 550 ? '📈 Di atas rata' : '💪 Perlu ditingkatkan'}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.scoreHeroValue, { color: Colors.textMuted, fontSize: 28 }]}>—</Text>
+                  <View style={styles.skorCta}>
+                    <Ionicons name="calculator-outline" size={11} color={Colors.primary} />
+                    <Text style={styles.skorCtaTxt}>Hitung Estimasi →</Text>
+                  </View>
+                </>
+              )}
             </View>
-            <View style={styles.scoreHeroStats}>
-              <View style={styles.miniStat}>
-                <Text style={styles.miniStatValue}>{soal}</Text>
-                <Text style={styles.miniStatLabel}>Soal</Text>
-              </View>
-              <View style={styles.miniStatDiv} />
-              <View style={styles.miniStat}>
-                <Text style={[styles.miniStatValue, { color: Colors.secondary }]}>{streak}🔥</Text>
-                <Text style={styles.miniStatLabel}>Streak</Text>
-              </View>
+
+            {/* Divider */}
+            <View style={styles.scoreHeroDivider} />
+
+            {/* Right: skor diperlukan PTN target #1 */}
+            <View style={styles.scoreHeroRight}>
+              <Text style={styles.scoreHeroLabel}>🎯 DIPERLUKAN PTN</Text>
+              {skorTarget ? (
+                <>
+                  <Text style={[styles.scoreHeroValue, { color: '#F59E0B', fontSize: 28 }]}>
+                    {Math.round(skorTarget)}
+                  </Text>
+                  <Text style={styles.scoreHeroSub} numberOfLines={1}>
+                    {namaTarget ?? 'Target #1'}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.scoreHeroValue, { color: Colors.textMuted, fontSize: 28 }]}>—</Text>
+                  <Text style={styles.scoreHeroSub}>Atur target PTN</Text>
+                </>
+              )}
             </View>
-          </View>
+          </TouchableOpacity>
+
+          {/* Gap indicator */}
+          {hasSkor && skor > 0 && skorTarget && (
+            <View style={styles.gapIndicator}>
+              {(() => {
+                const gap = Math.round(skor - skorTarget);
+                const color = gap >= 0 ? Colors.success : '#EF4444';
+                return (
+                  <>
+                    <Ionicons name={gap >= 0 ? 'checkmark-circle' : 'trending-up'} size={14} color={color} />
+                    <Text style={[styles.gapTxt, { color }]}>
+                      {gap >= 0
+                        ? `Skormu sudah ${gap} poin di atas target aman! 🎉`
+                        : `Butuh +${Math.abs(gap)} poin lagi untuk aman di target PTN-mu`}
+                    </Text>
+                  </>
+                );
+              })()}
+            </View>
+          )}
 
           {/* ── Target PTN ──────────────────────────────────────── */}
           {targets.length > 0 && (
@@ -288,14 +370,91 @@ export default function HomeScreen() {
             </>
           )}
 
+          {/* ── Peluang Lolos Banner ─────────────────────────────── */}
+          <TouchableOpacity style={styles.peluangBanner} onPress={() => router.push('/peluang-lolos')} activeOpacity={0.85}>
+            <View style={styles.peluangLeft}>
+              <Text style={styles.peluangLabel}>🎯 PELUANG LOLOS PTN</Text>
+              <Text style={styles.peluangTitle}>Cek skor aman & keketatan prodi</Text>
+              <Text style={styles.peluangSub}>Formula IRT + data SNPMB real-time</Text>
+            </View>
+            <View style={styles.peluangRight}>
+              <View style={[styles.statusDot, { backgroundColor: Colors.success }]} />
+              <View style={[styles.statusDot, { backgroundColor: Colors.secondary }]} />
+              <View style={[styles.statusDot, { backgroundColor: Colors.error }]} />
+              <Ionicons name="chevron-forward" size={18} color={Colors.primary} style={{ marginTop: 6 }} />
+            </View>
+          </TouchableOpacity>
+
           {/* ── Quick Actions ────────────────────────────────────── */}
           <Text style={styles.sectionTitle}>Mulai Belajar</Text>
           <View style={styles.qGrid}>
-            <QAction emoji="📝" label="Latihan" color={Colors.primary}   onPress={() => router.push('/(tabs)/latihan')} />
-            <QAction emoji="⚡" label="Tryout"  color={Colors.secondary} onPress={() => router.push('/(tabs)/latihan')} />
-            <QAction emoji="📊" label="Analisis" color="#8B5CF6"         onPress={() => router.push('/(tabs)/explore')} />
-            <QAction emoji="🤖" label="AI Chat" color={Colors.success}   onPress={() => router.push('/(tabs)/explore')} />
+            <QAction emoji="📝" label="Latihan"  color={Colors.primary}   onPress={() => router.push('/(tabs)/latihan')} />
+            <QAction emoji="⚡" label="Tryout"   color={Colors.secondary} onPress={() => router.push('/(tabs)/latihan')} />
+            <QAction emoji="🎯" label="Peluang"  color={Colors.success}   onPress={() => router.push('/peluang-lolos')} />
+            <QAction emoji="🤖" label="AI Tutor" color="#8B5CF6"          onPress={() => router.push('/ai-chat')} />
           </View>
+
+          {/* ── AI Feature Cards ─────────────────────────────────── */}
+          <Text style={styles.sectionTitle}>🤖 Fitur AI Unggulan</Text>
+          <View style={{ gap: 10, marginBottom: Spacing.lg }}>
+            {/* Strategi Belajar */}
+            <TouchableOpacity style={[styles.aiFeatCard, { borderColor: Colors.primary + '50' }]} onPress={() => router.push('/ai-chat')} activeOpacity={0.85}>
+              <View style={[styles.aiFeatIcon, { backgroundColor: Colors.primary + '20' }]}>
+                <Text style={{ fontSize: 24 }}>🧠</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.aiFeatTitle}>Strategi Belajar Personal</Text>
+                <Text style={styles.aiFeatDesc}>AI analisa kelemahanmu & buat jadwal belajar 30 hari</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+            </TouchableOpacity>
+            {/* Analisis Lolos */}
+            <TouchableOpacity style={[styles.aiFeatCard, { borderColor: '#10B981' + '50' }]} onPress={() => router.push('/ai-chat')} activeOpacity={0.85}>
+              <View style={[styles.aiFeatIcon, { backgroundColor: '#10B981' + '20' }]}>
+                <Text style={{ fontSize: 24 }}>🎯</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.aiFeatTitle}>Analisis Peluang Lolos SNBT/SNBP</Text>
+                <Text style={styles.aiFeatDesc}>Prediksi berbasis skor & histori kompetisi PTN tujuan</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+            </TouchableOpacity>
+            {/* Bank Soal */}
+            <TouchableOpacity style={[styles.aiFeatCard, { borderColor: Colors.secondary + '50' }]} onPress={() => router.push('/(tabs)/latihan')} activeOpacity={0.85}>
+              <View style={[styles.aiFeatIcon, { backgroundColor: Colors.secondary + '20' }]}>
+                <Text style={{ fontSize: 24 }}>📚</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.aiFeatTitle}>Bank Soal AI-Generated</Text>
+                <Text style={styles.aiFeatDesc}>Ribuan soal SNBT per sub-materi dengan pembahasan DCSEF</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          {/* ── Jadwal Ujian ─────────────────────────────────────── */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>📅 Jadwal Ujian</Text>
+            <TouchableOpacity onPress={() => router.push('/streak')}>
+              <Text style={styles.sectionLink}>Countdown →</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.lg }}>
+            {[
+              { label: 'SNBT 2026', emoji: '📝', date: '23 Apr 2026', color: Colors.primary,   days: Math.max(0,Math.ceil((new Date('2026-04-23').getTime()-Date.now())/86400000)) },
+              { label: 'SNBP 2026', emoji: '🎓', date: '18 Mar 2026', color: Colors.success,   days: Math.max(0,Math.ceil((new Date('2026-03-18').getTime()-Date.now())/86400000)) },
+              { label: 'UM UGM',    emoji: '🏛️', date: '1 Jun 2026',  color: '#8B5CF6',        days: Math.max(0,Math.ceil((new Date('2026-06-01').getTime()-Date.now())/86400000)) },
+              { label: 'SIMAK UI', emoji: '🏫', date: '15 Jun 2026', color: '#EC4899',        days: Math.max(0,Math.ceil((new Date('2026-06-15').getTime()-Date.now())/86400000)) },
+            ].map((e, i) => (
+              <TouchableOpacity key={i} style={[styles.examCard, { borderColor: e.color + '50' }]} onPress={() => router.push('/streak')}>
+                <Text style={{ fontSize: 24 }}>{e.emoji}</Text>
+                <Text style={[styles.examDays, { color: e.color }]}>{e.days}</Text>
+                <Text style={styles.examDaysLabel}>hari lagi</Text>
+                <Text style={styles.examName}>{e.label}</Text>
+                <Text style={styles.examDate}>{e.date}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
           {/* ── Mapel Progress ────────────────────────────────────── */}
           {mapels.length > 0 && (
@@ -336,7 +495,7 @@ export default function HomeScreen() {
             </View>
           )}
 
-          <View style={{ height: 120 }} />
+          <View style={{ height: 150 }} />
         </Animated.View>
       </ScrollView>
     </View>
@@ -469,4 +628,53 @@ const styles = StyleSheet.create({
     shadowColor: Colors.primary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
   },
   emptyBtnText: { color: '#fff', fontSize: FontSize.base, fontWeight: '700' },
+
+  // AI Feature Cards
+  aiFeatCard: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    backgroundColor: Colors.surface, borderRadius: Radius.xl,
+    borderWidth: 1.5, padding: Spacing.md,
+  },
+  aiFeatIcon: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  aiFeatTitle: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '700', marginBottom: 2 },
+  aiFeatDesc: { color: Colors.textMuted, fontSize: 11, lineHeight: 16 },
+
+  // Exam countdown cards
+  examCard: {
+    backgroundColor: Colors.surface, borderRadius: Radius.xl,
+    borderWidth: 1.5, padding: Spacing.md,
+    alignItems: 'center', gap: 2, marginRight: Spacing.sm, width: 110,
+  },
+  examDays: { fontSize: 28, fontWeight: '900', lineHeight: 34 },
+  examDaysLabel: { color: Colors.textMuted, fontSize: 9, fontWeight: '600' },
+  examName: { color: Colors.textPrimary, fontSize: FontSize.xs, fontWeight: '800', textAlign: 'center', marginTop: 4 },
+  examDate: { color: Colors.textMuted, fontSize: 9, textAlign: 'center' },
+
+  // Peluang Lolos Banner
+  peluangBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.primary + '12',
+    borderRadius: Radius.xl, borderWidth: 1.5, borderColor: Colors.primary + '40',
+    padding: Spacing.md, marginBottom: Spacing.lg,
+  },
+  peluangLeft: { flex: 1, gap: 3 },
+  peluangLabel: { color: Colors.primary, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  peluangTitle: { color: Colors.textPrimary, fontSize: FontSize.base, fontWeight: '800' },
+  peluangSub: { color: Colors.textMuted, fontSize: 10 },
+  peluangRight: { alignItems: 'center', gap: 3, paddingLeft: Spacing.sm },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+
+  // Skor CTA (new user, no skor yet)
+  skorCta: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: Colors.primary + '18', borderRadius: 10, borderWidth: 1, borderColor: Colors.primary + '40', paddingHorizontal: 10, paddingVertical: 6, marginTop: 4, alignSelf: 'flex-start' },
+  skorCtaTxt: { color: Colors.primary, fontSize: 11, fontWeight: '700' },
+
+  // Score hero divider + right panel
+  scoreHeroDivider: { width: 1, backgroundColor: Colors.border, marginHorizontal: 4, alignSelf: 'stretch' },
+  scoreHeroRight: { flex: 1, gap: 4, paddingLeft: 4 },
+
+  // Gap indicator below score hero
+  gapIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 10, marginTop: -4 },
+  gapTxt: { flex: 1, fontSize: 12, fontWeight: '600', lineHeight: 18 },
 });
+
+

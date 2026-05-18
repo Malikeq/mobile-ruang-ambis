@@ -8,7 +8,24 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 
-interface Target { kampus: string; jurusan: string; target_nilai: number; skor_saat_ini: number; }
+// Flat shape used for display
+interface Target {
+  kampusLabel: string;
+  jurusanLabel: string;
+  target_nilai: number;
+  skor_saat_ini: number;
+}
+// Raw API shape — kampus/jurusan may be nested objects
+function normalizeTarget(raw: any): Target {
+  const k = raw.kampus;
+  const j = raw.jurusan;
+  return {
+    kampusLabel:   typeof k === 'string' ? k : (k?.akronim || k?.nama || 'PTN'),
+    jurusanLabel:  typeof j === 'string' ? j : (j?.nama || 'Jurusan'),
+    target_nilai:  raw.target_nilai ?? (typeof j === 'object' ? j?.passing_grade_estimate : 0) ?? 0,
+    skor_saat_ini: raw.skor_saat_ini ?? 0,
+  };
+}
 
 function TargetCard({ target }: { target: Target }) {
   const gap  = target.target_nilai - target.skor_saat_ini;
@@ -18,8 +35,8 @@ function TargetCard({ target }: { target: Target }) {
     <View style={styles.targetCard}>
       <View style={styles.targetHeader}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.targetKampus}>{target.kampus}</Text>
-          <Text style={styles.targetJurusan}>{target.jurusan}</Text>
+          <Text style={styles.targetKampus}>{target.kampusLabel}</Text>
+          <Text style={styles.targetJurusan}>{target.jurusanLabel}</Text>
         </View>
         <View style={[styles.targetBadge, { backgroundColor: color + '20', borderColor: color + '50' }]}>
           <Text style={[styles.targetBadgeText, { color }]}>
@@ -85,7 +102,7 @@ export default function ProfilScreen() {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       });
       const json = await res.json();
-      setTargets(json?.data ?? []);
+      setTargets((json?.data ?? []).map(normalizeTarget));
     } catch { setTargets([]); }
     finally { setLoading(false); }
   };
@@ -161,7 +178,7 @@ export default function ProfilScreen() {
               <Text style={styles.emptyTargetsText}>Belum ada target PTN</Text>
               <TouchableOpacity
                 style={styles.addTargetBtn}
-                onPress={() => router.push('/onboarding/university')}
+                onPress={() => router.push('/edit-target')}
               >
                 <Text style={styles.addTargetBtnText}>+ Tambah Target</Text>
               </TouchableOpacity>
@@ -169,7 +186,7 @@ export default function ProfilScreen() {
           ) : (
             <>
               {targets.map((t, i) => <TargetCard key={i} target={t} />)}
-              <TouchableOpacity style={styles.editTargetBtn} onPress={() => router.push('/onboarding/university')}>
+              <TouchableOpacity style={styles.editTargetBtn} onPress={() => router.push('/edit-target')}>
                 <Text style={styles.editTargetBtnText}>✏️  Edit target PTN</Text>
               </TouchableOpacity>
             </>

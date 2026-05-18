@@ -8,8 +8,13 @@ import { API_BASE } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface Weakness {
-  id: number; mapel: string; sub_materi: string;
+  id: number; mapel: any; sub_materi: any;
   rata_rata_skor: number; total_sesi: number;
+}
+function toStr(val: any): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  return val.nama ?? val.kode ?? JSON.stringify(val);
 }
 interface MapelProgress { mapel: string; skor: number; soal_count: number; }
 
@@ -103,7 +108,7 @@ export default function AnalisisScreen() {
   ];
 
   const REKOMENDASI = weaknesses.slice(0, 3).map(w => ({
-    mapel: w.mapel, action: `Latih ulang "${w.sub_materi}"`,
+    mapel: toStr(w.mapel), action: `Latih ulang "${toStr(w.sub_materi)}"`,
     reason: `Skor rata-rata ${Math.round(w.rata_rata_skor)}% — di bawah target`, color: Colors.error,
   }));
 
@@ -198,8 +203,8 @@ export default function AnalisisScreen() {
                         <Text style={styles.weakBadgeEmoji}>{w.rata_rata_skor < 50 ? '🔴' : '🟡'}</Text>
                       </View>
                       <View style={styles.weakInfo}>
-                        <Text style={styles.weakMapel}>{w.mapel}</Text>
-                        <Text style={styles.weakSub}>{w.sub_materi}</Text>
+                        <Text style={styles.weakMapel}>{toStr(w.mapel)}</Text>
+                        <Text style={styles.weakSub}>{toStr(w.sub_materi)}</Text>
                         <View style={styles.weakMeta}>
                           <Text style={[styles.weakSkor, { color: w.rata_rata_skor < 50 ? Colors.error : Colors.warning }]}>
                             {Math.round(w.rata_rata_skor)}%
@@ -265,7 +270,7 @@ export default function AnalisisScreen() {
                         <Text>🎯</Text>
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.rekMapel}>{r.mapel}</Text>
+                        <Text style={styles.rekMapel}>{toStr(r.mapel)}</Text>
                         <Text style={[styles.rekAction, { color: r.color }]}>{r.action}</Text>
                         <Text style={styles.rekReason}>{r.reason}</Text>
                       </View>

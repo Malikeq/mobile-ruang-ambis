@@ -3,6 +3,8 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useEffect } from 'react';
+import { useFonts } from 'expo-font';
+import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { Colors } from '@/constants/theme';
 
@@ -48,6 +50,23 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  // Pre-load all vector-icon fonts so they are bundled at startup
+  // instead of being fetched lazily (which fails on physical devices)
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={styles.splash}>
+        <View style={styles.splashLogo}>
+          <View style={styles.splashDot} />
+        </View>
+        <ActivityIndicator color={Colors.primary} style={{ marginTop: 40 }} />
+      </View>
+    );
+  }
+
   return (
     <AuthProvider>
       <View style={{ flex: 1, backgroundColor: Colors.background }}>
