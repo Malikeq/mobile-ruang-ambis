@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { useFonts } from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import { Colors } from '@/constants/theme';
 
 function RootNavigator() {
@@ -69,10 +70,12 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <View style={{ flex: 1, backgroundColor: Colors.background }}>
-        <StatusBar style="light" backgroundColor={Colors.background} />
-        <RootNavigator />
-      </View>
+      <OnboardingProvider>
+        <View style={{ flex: 1, backgroundColor: Colors.background }}>
+          <StatusBar style="light" backgroundColor={Colors.background} />
+          <RootNavigator />
+        </View>
+      </OnboardingProvider>
     </AuthProvider>
   );
 }

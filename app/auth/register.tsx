@@ -6,11 +6,13 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { useOnboarding } from '@/contexts/OnboardingContext';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, getToken } from '@/lib/api';
 
 export default function RegisterScreen() {
-  const { register } = useAuth();
+  const { register, refreshUser } = useAuth();
+  const { sekolah, targets, reset: resetOnboarding } = useOnboarding();
   const [name, setName]           = useState('');
   const [email, setEmail]         = useState('');
   const [password, setPass]       = useState('');
@@ -72,7 +74,65 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       await register(name.trim(), email.trim(), password);
-      // User already went through onboarding slides → go straight to dashboard
+
+      // ── Submit all onboarding data from OnboardingContext ────────────────────
+      const token = await getToken();
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      };
+
+      console.log('[Onboarding] Submitting — sekolah:', sekolah, '| targets:', targets.length);
+
+      // 1. Asal sekolah
+      if (sekolah) {
+        try {
+          const r = await fetch(`${API_BASE}/user/profile`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ asal_sekolah: sekolah }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) console.warn('[Onboarding] sekolah FAILED', r.status, j);
+          else        console.log('[Onboarding] sekolah OK', j);
+        } catch (e) { console.warn('[Onboarding] sekolah error', e); }
+      }
+
+      // 2. Kampus & Jurusan targets
+      if (targets.length > 0) {
+        try {
+          const valid = targets
+            .filter(t => t.kampus_id > 0)
+            .map(t => ({
+              kampus_id:  t.kampus_id,
+              jurusan_id: (t.jurusan_id && t.jurusan_id > 0) ? t.jurusan_id : null,
+              priority:   t.priority,
+            }));
+          console.log('[Onboarding] targets payload:', JSON.stringify(valid));
+          if (valid.length > 0) {
+            const r = await fetch(`${API_BASE}/onboarding/target`, {
+              method: 'POST', headers,
+              body: JSON.stringify({ targets: valid }),
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) console.warn('[Onboarding] targets FAILED', r.status, j);
+            else        console.log('[Onboarding] targets OK');
+          }
+        } catch (e) { console.warn('[Onboarding] targets error', e); }
+      }
+
+      // 3. Mark onboarding complete
+      try {
+        const r = await fetch(`${API_BASE}/onboarding/complete`, { method: 'POST', headers });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); console.warn('[Onboarding] complete FAILED', r.status, j); }
+        else console.log('[Onboarding] complete OK');
+      } catch (e) { console.warn('[Onboarding] complete error', e); }
+
+      // 4. Clear context + refresh auth user
+      resetOnboarding();
+      try { await refreshUser(); } catch { /* ok */ }
+
+      // → Go to dashboard
       router.replace('/(tabs)');
     } catch (e: any) {
       const raw: string = e?.message ?? '';

@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Animated, Platform, Alert, ActivityIndicator,
+  Animated, Platform, Alert, ActivityIndicator, Modal,
+  TextInput, KeyboardAvoidingView,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
@@ -15,7 +17,6 @@ interface Target {
   target_nilai: number;
   skor_saat_ini: number;
 }
-// Raw API shape — kampus/jurusan may be nested objects
 function normalizeTarget(raw: any): Target {
   const k = raw.kampus;
   const j = raw.jurusan;
@@ -83,11 +84,107 @@ function MenuRow({ emoji, label, desc, color, onPress, badge }: {
   );
 }
 
+// ── Edit Profil Modal ──────────────────────────────────────────────────────────
+function EditProfilModal({ visible, user, token, onClose, onSaved }: {
+  visible: boolean; user: any; token: string | null; onClose: () => void; onSaved: () => void;
+}) {
+  const [name,       setName]       = useState('');
+  const [sekolah,    setSekolah]    = useState('');
+  const [saving,     setSaving]     = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setName(user?.name ?? '');
+      setSekolah(user?.asal_sekolah ?? '');
+    }
+  }, [visible, user]);
+
+  const handleSave = async () => {
+    if (!name.trim()) { Alert.alert('Nama tidak boleh kosong'); return; }
+    setSaving(true);
+    try {
+      const res  = await fetch(`${API_BASE}/user/profile`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), asal_sekolah: sekolah.trim() || null }),
+      });
+      const json = await res.json();
+      if (json?.success) {
+        onSaved();
+        Alert.alert('✅ Berhasil', 'Profil berhasil diperbarui!');
+        onClose();
+      } else {
+        Alert.alert('Gagal', json?.message ?? 'Terjadi kesalahan');
+      }
+    } catch { Alert.alert('Error', 'Gagal terhubung ke server'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose} />
+        <View style={styles.modalSheet}>
+          {/* Handle */}
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>Edit Profil</Text>
+          <Text style={styles.modalSub}>Perbarui informasi akunmu</Text>
+
+          {/* Name */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>👤  Nama Lengkap</Text>
+            <TextInput
+              style={styles.input}
+              value={name}
+              onChangeText={setName}
+              placeholder="Masukkan nama lengkap"
+              placeholderTextColor={Colors.textMuted}
+              maxLength={100}
+            />
+          </View>
+
+          {/* Asal Sekolah */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>🏫  Asal Sekolah</Text>
+            <TextInput
+              style={styles.input}
+              value={sekolah}
+              onChangeText={setSekolah}
+              placeholder="Contoh: SMAN 1 Jakarta"
+              placeholderTextColor={Colors.textMuted}
+              maxLength={200}
+            />
+            <Text style={styles.inputHint}>Data ini membantu personalisasi rekomendasi belajarmu</Text>
+          </View>
+
+          {/* Save */}
+          <TouchableOpacity
+            style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <><Ionicons name="checkmark-circle" size={18} color="#fff" /><Text style={styles.saveBtnText}>Simpan Perubahan</Text></>
+            }
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+            <Text style={styles.cancelBtnText}>Batal</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// ── Main Screen ────────────────────────────────────────────────────────────────
 export default function ProfilScreen() {
-  const { user, logout, token } = useAuth();
-  const [targets, setTargets]   = useState<Target[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [loggingOut, setLO]     = useState(false);
+  const { user, logout, token, refreshUser } = useAuth();
+  const [targets,    setTargets]   = useState<Target[]>([]);
+  const [loading,    setLoading]   = useState(true);
+  const [loggingOut, setLO]        = useState(false);
+  const [editModal,  setEditModal] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -139,15 +236,37 @@ export default function ProfilScreen() {
 
           {/* ── Profile Hero ─────────────────────────────────────── */}
           <View style={styles.hero}>
-            <View style={styles.avatar}>
+            <TouchableOpacity style={styles.avatar} onPress={() => setEditModal(true)} activeOpacity={0.8}>
               <Text style={styles.avatarText}>{(user?.name ?? 'U')[0].toUpperCase()}</Text>
-            </View>
+              <View style={styles.avatarEditBadge}>
+                <Ionicons name="pencil" size={10} color="#fff" />
+              </View>
+            </TouchableOpacity>
             <Text style={styles.heroName}>{user?.name ?? 'Pengguna'}</Text>
             <Text style={styles.heroEmail}>{user?.email ?? ''}</Text>
+            {/* Asal Sekolah */}
+            {user?.asal_sekolah ? (
+              <View style={styles.sekolahBadge}>
+                <Ionicons name="school-outline" size={12} color={Colors.primaryLight} />
+                <Text style={styles.sekolahText}>{user.asal_sekolah}</Text>
+              </View>
+            ) : (
+              <TouchableOpacity onPress={() => setEditModal(true)} style={styles.sekolahAdd}>
+                <Ionicons name="add-circle-outline" size={13} color={Colors.textMuted} />
+                <Text style={styles.sekolahAddText}>Tambah asal sekolah</Text>
+              </TouchableOpacity>
+            )}
             <View style={[styles.tierBadge, { backgroundColor: tierColor + '20', borderColor: tierColor + '50' }]}>
               <Text style={[styles.tierText, { color: tierColor }]}>{tierLabel}</Text>
             </View>
           </View>
+
+          {/* ── Edit Profil CTA ───────────────────────────────────── */}
+          <TouchableOpacity style={styles.editProfilBtn} onPress={() => setEditModal(true)} activeOpacity={0.85}>
+            <Ionicons name="create-outline" size={16} color={Colors.primary} />
+            <Text style={styles.editProfilText}>Edit Profil & Asal Sekolah</Text>
+            <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} />
+          </TouchableOpacity>
 
           {/* ── Upgrade Banner (jika free) ───────────────────────── */}
           {(!user?.tier || user.tier === 'free') && (
@@ -252,6 +371,15 @@ export default function ProfilScreen() {
           <View style={{ height: Platform.OS === 'ios' ? 100 : 80 }} />
         </Animated.View>
       </ScrollView>
+
+      {/* Edit Modal */}
+      <EditProfilModal
+        visible={editModal}
+        user={user}
+        token={token}
+        onClose={() => setEditModal(false)}
+        onSaved={refreshUser}
+      />
     </View>
   );
 }
@@ -262,7 +390,7 @@ const styles = StyleSheet.create({
   scroll: { paddingTop: Platform.OS === 'ios' ? 60 : 48, paddingHorizontal: Spacing.lg },
 
   // Hero
-  hero: { alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.xl },
+  hero: { alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.md },
   avatar: {
     width: 88, height: 88, borderRadius: 44,
     backgroundColor: Colors.primary,
@@ -272,10 +400,24 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   avatarText: { color: '#fff', fontSize: 40, fontWeight: '900' },
+  avatarEditBadge: {
+    position: 'absolute', bottom: 2, right: 2,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: Colors.secondary, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: Colors.background,
+  },
   heroName:   { color: Colors.textPrimary, fontSize: FontSize.xl, fontWeight: '800', letterSpacing: -0.3 },
   heroEmail:  { color: Colors.textMuted, fontSize: FontSize.sm },
+  sekolahBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: Colors.primary + '15', borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: Colors.primary + '30' },
+  sekolahText:  { color: Colors.primaryLight, fontSize: FontSize.xs, fontWeight: '600' },
+  sekolahAdd:   { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sekolahAddText: { color: Colors.textMuted, fontSize: FontSize.xs, textDecorationLine: 'underline' },
   tierBadge:  { paddingHorizontal: 16, paddingVertical: 6, borderRadius: Radius.full, borderWidth: 1 },
   tierText:   { fontSize: FontSize.sm, fontWeight: '700' },
+
+  // Edit Profil CTA
+  editProfilBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primary + '12', borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.primary + '30', padding: 12, marginBottom: Spacing.lg },
+  editProfilText: { flex: 1, color: Colors.primaryLight, fontSize: FontSize.sm, fontWeight: '600' },
 
   // Upgrade banner
   upgradeBanner: {
@@ -360,4 +502,33 @@ const styles = StyleSheet.create({
   },
   logoutText: { color: Colors.error, fontSize: FontSize.base, fontWeight: '700' },
   footerText: { color: Colors.textMuted, fontSize: 10, textAlign: 'center', marginBottom: Spacing.md },
+
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalSheet: {
+    backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: Spacing.xl, paddingBottom: Platform.OS === 'ios' ? 44 : 28, gap: Spacing.md,
+  },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: 4 },
+  modalTitle: { color: Colors.textPrimary, fontSize: FontSize.xl, fontWeight: '800' },
+  modalSub: { color: Colors.textMuted, fontSize: FontSize.sm, marginTop: -8 },
+  inputGroup: { gap: 6 },
+  inputLabel: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '600' },
+  input: {
+    backgroundColor: Colors.surfaceElevated, borderRadius: Radius.lg,
+    borderWidth: 1.5, borderColor: Colors.border,
+    color: Colors.textPrimary, fontSize: FontSize.base,
+    paddingHorizontal: Spacing.md, paddingVertical: 13,
+  },
+  inputHint: { color: Colors.textMuted, fontSize: FontSize.xs, lineHeight: 16 },
+  saveBtn: {
+    backgroundColor: Colors.primary, borderRadius: Radius.xl,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 15, marginTop: 4,
+    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35, shadowRadius: 12, elevation: 6,
+  },
+  saveBtnText: { color: '#fff', fontSize: FontSize.base, fontWeight: '700' },
+  cancelBtn: { alignItems: 'center', paddingVertical: 10 },
+  cancelBtnText: { color: Colors.textMuted, fontSize: FontSize.sm },
 });

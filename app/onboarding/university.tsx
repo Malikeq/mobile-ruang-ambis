@@ -7,6 +7,7 @@ import {
 import { router } from 'expo-router';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE, Kampus, Jurusan } from '@/lib/api';
+import { useOnboarding } from '@/contexts/OnboardingContext';
 
 const ACCENT_COLORS = [
   Colors.primary, Colors.secondary, Colors.success,
@@ -288,6 +289,7 @@ function KampusCard({ item, target, onPress, colorIndex }: {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function UniversityScreen() {
+  const { setTargets: saveTargets } = useOnboarding();
   const [allKampus, setAllKampus]     = useState<Kampus[]>([]);
   const [targets, setTargets]         = useState<Target[]>([]);
   const [search, setSearch]           = useState('');
@@ -460,7 +462,19 @@ export default function UniversityScreen() {
       <View style={styles.bottom}>
         <TouchableOpacity
           style={[styles.btn, targets.length === 0 && styles.btnMuted]}
-          onPress={() => router.push('/onboarding/pricing')}
+          onPress={() => {
+            // Save to OnboardingContext (in-memory — no AsyncStorage needed)
+            saveTargets(targets.map((t, i) => ({
+              kampus_id:      t.kampus.id,
+              kampus_nama:    t.kampus.nama,
+              kampus_akronim: t.kampus.akronim,
+              jurusan_id:     t.jurusan?.id ?? null,
+              jurusan_nama:   t.jurusan?.nama ?? null,
+              passing_grade:  t.jurusan?.passing_grade_estimate ?? null,
+              priority:       i + 1,
+            })));
+            router.push('/onboarding/pricing');
+          }}
           activeOpacity={0.85}
         >
           <Text style={styles.btnText}>

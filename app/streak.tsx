@@ -11,10 +11,24 @@ const SZ = 68;
 const RH = 108;
 
 const SECTIONS = [
-  { label: 'Dasar SNBT',       color: '#58CC02', bg: '#1A3A0A', unit: 1, at: 0  },
-  { label: 'TPA & Penalaran',  color: '#CE82FF', bg: '#2A1A3A', unit: 2, at: 5  },
-  { label: 'Literasi',         color: '#FF9600', bg: '#3A2200', unit: 3, at: 10 },
-  { label: 'Matematika',       color: '#1CB0F6', bg: '#002A3A', unit: 4, at: 15 },
+  { label: 'Dasar SNBT',       color: Colors.primary, bg: '#0A1A3A', unit: 1, at: 0  },
+  { label: 'TPA & Penalaran',  color: '#CE82FF',      bg: '#2A1A3A', unit: 2, at: 5  },
+  { label: 'Literasi',         color: '#FF9600',      bg: '#3A2200', unit: 3, at: 10 },
+  { label: 'Matematika',       color: '#1CB0F6',      bg: '#002A3A', unit: 4, at: 15 },
+];
+
+// SNBT 2026 key dates for calendar markers
+const SNBT_EVENTS: { date: string; label: string; color: string; emoji: string }[] = [
+  { date: '2026-01-06', label: 'Reg SNBP',  color: '#58CC02', emoji: '📋' },
+  { date: '2026-02-18', label: 'SNBP',      color: '#58CC02', emoji: '🎓' },
+  { date: '2026-03-18', label: 'SNBP Hasil',color: '#10B981', emoji: '📊' },
+  { date: '2026-03-20', label: 'Reg SNBT',  color: Colors.primary, emoji: '📝' },
+  { date: '2026-04-23', label: 'SNBT H1',   color: Colors.primary, emoji: '🔔' },
+  { date: '2026-04-24', label: 'SNBT H2',   color: Colors.primary, emoji: '🔔' },
+  { date: '2026-06-17', label: 'Hasil SNBT',color: '#FF9600', emoji: '🏆' },
+  { date: '2026-06-01', label: 'UM UGM',    color: '#CE82FF', emoji: '🏛️' },
+  { date: '2026-06-08', label: 'USMI ITB',  color: '#FF4B4B', emoji: '⚙️' },
+  { date: '2026-06-15', label: 'SIMAK UI',  color: '#FF9600', emoji: '🏫' },
 ];
 
 const EXAMS = [
@@ -36,6 +50,24 @@ const TIPS = [
 
 function daysLeft(d: Date) { return Math.max(0, Math.ceil((d.getTime() - Date.now()) / 86400000)); }
 function getSection(idx: number) { return [...SECTIONS].reverse().find(s => idx >= s.at) ?? SECTIONS[0]; }
+
+/** Tiered streak emoji — upgrades every 10 days */
+function streakEmoji(streak: number): string {
+  if (streak >= 100) return '🌋';
+  if (streak >= 60)  return '⚡🔥';
+  if (streak >= 50)  return '💥';
+  if (streak >= 40)  return '🔥🌟';
+  if (streak >= 30)  return '🔥🔥🔥';
+  if (streak >= 20)  return '🔥🔥';
+  if (streak >= 10)  return '🔥✨';
+  return '🔥';
+}
+
+/** Format date to YYYY-MM-DD for event lookup */
+function dateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+const EVENT_MAP = Object.fromEntries(SNBT_EVENTS.map(e => [e.date, e]));
 
 function PathNode({ icon, done, active, xFrac, isChest, section }: {
   icon: string; done: boolean; active: boolean; xFrac: number; isChest?: boolean; section: typeof SECTIONS[0];
@@ -159,7 +191,7 @@ export default function StreakScreen() {
       <View style={s.topBar}>
         <TouchableOpacity onPress={() => router.back()}><Ionicons name="arrow-back" size={22} color="#fff" /></TouchableOpacity>
         <View style={s.statRow}>
-          <View style={s.stat}><Text style={{ fontSize: 16 }}>🔥</Text><Text style={s.statVal}>{streak}</Text></View>
+          <View style={s.stat}><Text style={{ fontSize: 16 }}>{streakEmoji(streak)}</Text><Text style={s.statVal}>{streak}</Text></View>
           <View style={s.stat}><Text style={{ fontSize: 16 }}>💎</Text><Text style={[s.statVal, { color: '#1CB0F6' }]}>{pts}</Text></View>
           <View style={s.stat}><Text style={{ fontSize: 16 }}>⚡</Text><Text style={[s.statVal, { color: '#FF9600' }]}>{soal}</Text></View>
           <View style={s.stat}><Text style={{ fontSize: 16 }}>🎯</Text><Text style={[s.statVal, { color: '#58CC02' }]}>{acc}%</Text></View>
@@ -255,44 +287,108 @@ export default function StreakScreen() {
           </View>
         </View>
 
-        {/* Calendar heatmap */}
+        {/* Calendar heatmap with dates + SNBT events */}
         <View style={s.section}>
-          <Text style={s.sTitle}>📅 Kalender Aktivitas (6 Minggu)</Text>
+          <Text style={s.sTitle}>📅 Kalender Aktivitas</Text>
           <View style={s.calCard}>
+            {/* Day headers */}
             <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-              {['M','S','S','R','K','J','S'].map((d, i) => (
+              {['Min','Sen','Sel','Rab','Kam','Jum','Sab'].map((d, i) => (
                 <Text key={i} style={s.calHdr}>{d}</Text>
               ))}
             </View>
             {(() => {
-              const today = new Date();
+              const today    = new Date();
+              today.setHours(0,0,0,0);
+              // Anchor to Sunday of 6 weeks ago
+              const startDay = new Date(today);
+              startDay.setDate(today.getDate() - 41);
+              // Shift back to Sunday
+              startDay.setDate(startDay.getDate() - startDay.getDay());
+
               const cells = Array.from({ length: 42 }, (_, i) => {
-                const daysAgo = 41 - i;
-                const d = new Date(today); d.setDate(d.getDate() - daysAgo);
-                return { active: daysAgo < streak, isToday: daysAgo === 0, date: d };
+                const d = new Date(startDay); d.setDate(startDay.getDate() + i);
+                const daysAgo   = Math.round((today.getTime() - d.getTime()) / 86400000);
+                const isFuture  = daysAgo < 0;
+                const isToday   = daysAgo === 0;
+                const active    = !isFuture && daysAgo < streak;
+                const key       = dateKey(d);
+                const event     = EVENT_MAP[key];
+                return { d, daysAgo, active, isToday, isFuture, event };
               });
               const weeks: typeof cells[] = [];
-              for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+              for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i+7));
+
               return (
                 <View style={{ flexDirection: 'row', gap: 3 }}>
                   {weeks.map((w, wi) => (
                     <View key={wi} style={{ gap: 3, flex: 1 }}>
                       {w.map((c, ci) => (
-                        <View key={ci} style={[s.calCell,
-                          c.active && { backgroundColor: '#58CC02' },
-                          c.isToday && { borderWidth: 2, borderColor: '#1CB0F6', backgroundColor: c.active ? '#58CC02' : '#1A2030' },
-                        ]} />
+                        <View key={ci} style={{ position: 'relative' }}>
+                          <View style={[s.calCell,
+                            c.isFuture  && { backgroundColor: '#151A25', opacity: 0.4 },
+                            c.active    && { backgroundColor: Colors.primary },
+                            c.isToday   && { borderWidth: 2, borderColor: '#F59E0B', backgroundColor: c.active ? Colors.primary : '#1A2030' },
+                            c.event     && { borderWidth: 1.5, borderColor: c.event.color },
+                          ]} />
+                          {/* Date number */}
+                          <Text style={[s.calDate,
+                            c.active   && { color: '#fff' },
+                            c.isToday  && { color: '#F59E0B', fontWeight: '900' },
+                            c.isFuture && { color: '#2A3550' },
+                          ]}>{c.d.getDate()}</Text>
+                          {/* Event emoji dot */}
+                          {c.event && (
+                            <Text style={s.calEventDot}>{c.event.emoji}</Text>
+                          )}
+                        </View>
                       ))}
                     </View>
                   ))}
                 </View>
               );
             })()}
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' }}>
-              <View style={[s.calCell, { backgroundColor: '#1A2030' }]} /><Text style={s.legTxt}>Tidak aktif</Text>
-              <View style={[s.calCell, { backgroundColor: '#58CC02' }]} /><Text style={s.legTxt}>Aktif</Text>
-              <View style={[s.calCell, { borderWidth: 2, borderColor: '#1CB0F6' }]} /><Text style={s.legTxt}>Hari ini</Text>
+
+            {/* Legend */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12, alignItems: 'center' }}>
+              <View style={s.legRow}><View style={[s.calCell, { width: 14, height: 14 }]} /><Text style={s.legTxt}>Tidak aktif</Text></View>
+              <View style={s.legRow}><View style={[s.calCell, { width: 14, height: 14, backgroundColor: Colors.primary }]} /><Text style={s.legTxt}>Aktif</Text></View>
+              <View style={s.legRow}><View style={[s.calCell, { width: 14, height: 14, borderWidth: 2, borderColor: '#F59E0B' }]} /><Text style={s.legTxt}>Hari ini</Text></View>
+              <View style={s.legRow}><View style={[s.calCell, { width: 14, height: 14, borderWidth: 1.5, borderColor: Colors.primary }]} /><Text style={s.legTxt}>Event SNBT</Text></View>
             </View>
+
+            {/* Upcoming SNBT events in next 90 days */}
+            {(() => {
+              const upcoming = SNBT_EVENTS
+                .filter(e => {
+                  const d = new Date(e.date);
+                  const diff = Math.ceil((d.getTime() - Date.now()) / 86400000);
+                  return diff >= 0 && diff <= 90;
+                })
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                .slice(0, 4);
+              if (!upcoming.length) return null;
+              return (
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  <Text style={{ color: '#6B7280', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 }}>AGENDA 90 HARI KE DEPAN</Text>
+                  {upcoming.map(e => {
+                    const diff = Math.ceil((new Date(e.date).getTime() - Date.now()) / 86400000);
+                    return (
+                      <View key={e.date} style={[s.eventRow, { borderLeftColor: e.color }]}>
+                        <Text style={{ fontSize: 16 }}>{e.emoji}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[s.eventLabel, { color: e.color }]}>{e.label}</Text>
+                          <Text style={s.eventDate}>{new Date(e.date).toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' })}</Text>
+                        </View>
+                        <View style={[s.eventPill, { backgroundColor: e.color + '20', borderColor: e.color }]}>
+                          <Text style={[s.eventPillTxt, { color: e.color }]}>{diff}h lagi</Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })()}
           </View>
         </View>
 
@@ -301,21 +397,26 @@ export default function StreakScreen() {
           <Text style={s.sTitle}>🏅 Milestone Streak</Text>
           <View style={{ gap: 8 }}>
             {[
-              { days: 3,   emoji: '🌱', label: '3 Hari',   color: '#58CC02' },
-              { days: 7,   emoji: '🔥', label: '1 Minggu', color: '#FF9600' },
-              { days: 14,  emoji: '⚡', label: '2 Minggu', color: '#1CB0F6' },
-              { days: 30,  emoji: '🏆', label: '1 Bulan',  color: '#CE82FF' },
-              { days: 100, emoji: '🚀', label: '100 Hari', color: '#FF4B4B' },
+              { days: 3,   emoji: '🌱',    label: '3 Hari — Bibit',          color: '#58CC02' },
+              { days: 7,   emoji: '🔥',    label: '1 Minggu — Mulai Panas',  color: '#FF9600' },
+              { days: 10,  emoji: '🔥✨',  label: '10 Hari — Api Menyala',  color: '#F59E0B' },
+              { days: 14,  emoji: '⚡',    label: '2 Minggu — Kilat',        color: '#1CB0F6' },
+              { days: 20,  emoji: '🔥🔥',  label: '20 Hari — Api Kembar',   color: '#EF4444' },
+              { days: 30,  emoji: '🔥🔥🔥',label: '1 Bulan — Inferno',      color: '#CE82FF' },
+              { days: 40,  emoji: '🔥🌟',  label: '40 Hari — Bintang Api',  color: '#A855F7' },
+              { days: 50,  emoji: '💥',    label: '50 Hari — Ledakan',      color: '#FF4B4B' },
+              { days: 60,  emoji: '⚡🔥',  label: '60 Hari — Petir Api',    color: '#06B6D4' },
+              { days: 100, emoji: '🌋',    label: '100 Hari — Gunung Api',  color: '#DC2626' },
             ].map(m => {
               const done = streak >= m.days;
               const pct  = Math.min(1, streak / m.days);
               return (
                 <View key={m.days} style={[s.msCard, done && { borderColor: m.color + '50', backgroundColor: m.color + '10' }]}>
-                  <Text style={[{ fontSize: 26 }, !done && { opacity: 0.3 }]}>{m.emoji}</Text>
+                  <Text style={[{ fontSize: 24 }, !done && { opacity: 0.25 }]}>{m.emoji}</Text>
                   <View style={{ flex: 1, gap: 5 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                       <Text style={[s.msLabel, done && { color: m.color }]}>{m.label}</Text>
-                      <Text style={[s.msPct, { color: m.color }]}>{streak}/{m.days}</Text>
+                      <Text style={[s.msPct, { color: m.color }]}>{Math.min(streak, m.days)}/{m.days}</Text>
                     </View>
                     <View style={s.msTrack}>
                       <View style={[s.msFill, { width: `${pct * 100}%` as any, backgroundColor: m.color }]} />
@@ -379,11 +480,19 @@ const s = StyleSheet.create({
   countNum: { fontSize: 22, fontWeight: '900', lineHeight: 26 },
   countUnit: { color: '#6B7280', fontSize: 9, fontWeight: '700' },
   calCard: { backgroundColor: '#1C2333', borderRadius: 16, borderWidth: 1, borderColor: '#2A3550', padding: 14 },
-  calHdr: { color: '#6B7280', fontSize: 9, flex: 1, textAlign: 'center' },
-  calCell: { flex: 1, aspectRatio: 1, borderRadius: 4, backgroundColor: '#2A3550' },
-  legTxt: { color: '#6B7280', fontSize: 10, marginRight: 8 },
+  calHdr: { color: '#6B7280', fontSize: 8, flex: 1, textAlign: 'center' },
+  calCell: { flex: 1, aspectRatio: 1, borderRadius: 3, backgroundColor: '#2A3550' },
+  calDate: { position: 'absolute', bottom: 1, right: 2, fontSize: 6, color: '#6B7280', fontWeight: '600' },
+  calEventDot: { position: 'absolute', top: -4, right: -4, fontSize: 8 },
+  legRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legTxt: { color: '#6B7280', fontSize: 9, marginRight: 4 },
+  eventRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#151A25', borderRadius: 10, padding: 10, borderLeftWidth: 3 },
+  eventLabel: { fontSize: 12, fontWeight: '800' },
+  eventDate: { color: '#6B7280', fontSize: 10, marginTop: 1 },
+  eventPill: { borderRadius: 99, borderWidth: 1.5, paddingHorizontal: 8, paddingVertical: 4 },
+  eventPillTxt: { fontSize: 10, fontWeight: '800' },
   msCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#1C2333', borderRadius: 14, borderWidth: 1, borderColor: '#2A3550', padding: 14 },
-  msLabel: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  msLabel: { color: '#fff', fontSize: 12, fontWeight: '700' },
   msPct: { fontSize: 11, fontWeight: '700' },
   msTrack: { height: 7, backgroundColor: '#2A3550', borderRadius: 4, overflow: 'hidden' },
   msFill: { height: '100%', borderRadius: 4 },

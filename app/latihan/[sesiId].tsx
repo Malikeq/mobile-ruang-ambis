@@ -16,15 +16,20 @@ interface Soal { id: number; konten: string; wacana?: string; pembahasan?: strin
 type Phase = 'loading' | 'soal' | 'answered' | 'submitting' | 'hasil' | 'error';
 
 export default function SesiScreen() {
-  const { sesiId, total: totalParam } = useLocalSearchParams<{ sesiId: string; total?: string }>();
+  const { sesiId, total: totalParam, timer: timerParam } = useLocalSearchParams<{ sesiId: string; total?: string; timer?: string }>();
   const { token } = useAuth();
-  const total = parseInt(totalParam ?? '10', 10);
+  const total      = parseInt(totalParam ?? '10', 10);
+  const timerMenit = parseInt(timerParam  ?? '0',  10); // 0 = no countdown
+  const isCountdown = timerMenit > 0;
 
   const [phase,      setPhase]      = useState<Phase>('loading');
   const [soal,       setSoal]       = useState<Soal | null>(null);
   const [index,      setIndex]      = useState(0);
   const [errorMsg,   setError]      = useState('');
   const [hasilSkor,  setHasilSkor]  = useState(0);
+  const [hasilAkhir, setHasilAkhir] = useState(0); // SNBT scale 400-800
+  const [hasilBenar, setHasilBenar] = useState(0);
+  const [hasilTotal, setHasilTotal] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [correctId,  setCorrectId]  = useState<number | null>(null);
   const [isCorrect,  setIsCorrect]  = useState<boolean | null>(null);
@@ -37,16 +42,46 @@ export default function SesiScreen() {
   const timerRef  = useRef<ReturnType<typeof setInterval>>();
   const startMs   = useRef(Date.now());
   const totalTime = useRef(0);
-  const [timer, setTimer] = useState(0);
+  // countdown: starts at timerMenit*60 and counts down; count-up: starts at 0 and counts up
+  const [timer, setTimer] = useState(isCountdown ? timerMenit * 60 : 0);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const H = { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' };
 
   useEffect(() => {
     fetchSoal(0);
-    timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
+    if (isCountdown) {
+      // Countdown: tick down, auto-finish at 0
+      timerRef.current = setInterval(() => {
+        setTimer(t => {
+          if (t <= 1) {
+            clearInterval(timerRef.current);
+            finishSesi();
+            return 0;
+          }
+          return t - 1;
+        });
+      }, 1000);
+    } else {
+      // Count-up timer
+      timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
+    }
     return () => clearInterval(timerRef.current);
   }, []);
+
+  // Pulse animation when time is critical (< 30s)
+  useEffect(() => {
+    if (!isCountdown || timer > 30) return;
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.12, duration: 400, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,    duration: 400, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [isCountdown, timer <= 30]);
 
   const animIn = () => { fadeAnim.setValue(0); Animated.timing(fadeAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start(); };
 
@@ -106,11 +141,22 @@ export default function SesiScreen() {
       const res  = await fetch(`${API_BASE}/latihan/${sesiId}/selesai`, { method: 'POST', headers: H });
       const json = await res.json();
       setHasilSkor(Math.round(json?.data?.skor_raw ?? 0));
+      setHasilAkhir(Math.round(json?.data?.skor_akhir ?? 0));
+      setHasilBenar(json?.data?.total_benar ?? 0);
+      setHasilTotal(json?.data?.total_soal ?? total);
     } catch {}
     setPhase('hasil'); animIn();
   };
 
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+
+  // Header timer color for countdown urgency
+  const timerColor = !isCountdown
+    ? Colors.secondary
+    : timer > 120  ? Colors.success
+    : timer > 60   ? Colors.secondary
+    : timer > 30   ? '#F59E0B'
+    : Colors.error;
 
   // ── Question Grid ──────────────────────────────────────────────────────────
   function QuestionGrid() {
@@ -157,29 +203,65 @@ export default function SesiScreen() {
   );
 
   if (phase === 'hasil') {
-    const color = hasilSkor >= 70 ? Colors.success : hasilSkor >= 50 ? Colors.secondary : Colors.error;
-    const benar = Object.values(results).filter(Boolean).length;
+    const acc = hasilSkor; // 0-100
+    const snbt = hasilAkhir || Math.round(400 + (acc / 100) * 400);
+    const benarCount = hasilBenar || Object.values(results).filter(Boolean).length;
+    const totalCount = hasilTotal || total;
+    const color = acc >= 70 ? Colors.success : acc >= 50 ? Colors.secondary : Colors.error;
+    const emoji = acc >= 70 ? '🏆' : acc >= 50 ? '📈' : '💪';
     return (
       <View style={st.container}>
         <Animated.ScrollView style={{ opacity: fadeAnim }} contentContainerStyle={st.hasilScroll}>
-          <Text style={{ fontSize: 72 }}>{hasilSkor >= 70 ? '🏆' : hasilSkor >= 50 ? '📈' : '💪'}</Text>
+          <Text style={{ fontSize: 72 }}>{emoji}</Text>
           <Text style={st.hasilTitle}>Sesi Selesai!</Text>
-          <View style={[st.scoreCard, { borderColor: color + '50' }]}>
-            <Text style={st.scoreLabel}>Nilai Kamu</Text>
-            <Text style={[st.scoreNum, { color }]}>{hasilSkor}</Text>
-            <Text style={st.scoreMax}>/100</Text>
+
+          {/* SNBT Score Card */}
+          <View style={[st.scoreCard, { borderColor: color + '50', backgroundColor: color + '08' }]}>
+            <Text style={[st.scoreLabel, { color }]}>Estimasi Skor SNBT</Text>
+            <Text style={[st.scoreNum, { color, fontSize: 52 }]}>{snbt}</Text>
+            <Text style={[st.scoreMax, { color: Colors.textMuted }]}>dari 800</Text>
+            <View style={{ height: 1, backgroundColor: color + '30', marginVertical: 10, width: '80%', alignSelf: 'center' }} />
+            <Text style={st.scoreLabel}>Akurasi Jawaban</Text>
+            <Text style={[st.scoreNum, { color, fontSize: 32 }]}>{acc}<Text style={{ fontSize: 16 }}>%</Text></Text>
           </View>
+
+          {/* Stats Row */}
           <View style={st.statsRow}>
-            <View style={st.stat}><Text style={[st.statVal, { color: Colors.success }]}>{benar}</Text><Text style={st.statLabel}>Benar</Text></View>
-            <View style={st.stat}><Text style={[st.statVal, { color: Colors.error }]}>{total - benar}</Text><Text style={st.statLabel}>Salah</Text></View>
-            <View style={st.stat}><Text style={st.statVal}>{fmt(totalTime.current)}</Text><Text style={st.statLabel}>Waktu</Text></View>
+            <View style={st.stat}>
+              <Text style={[st.statVal, { color: Colors.success }]}>{benarCount}</Text>
+              <Text style={st.statLabel}>Benar</Text>
+            </View>
+            <View style={st.stat}>
+              <Text style={[st.statVal, { color: Colors.error }]}>{totalCount - benarCount}</Text>
+              <Text style={st.statLabel}>Salah</Text>
+            </View>
+            <View style={st.stat}>
+              <Text style={st.statVal}>{fmt(totalTime.current)}</Text>
+              <Text style={st.statLabel}>Waktu</Text>
+            </View>
+            <View style={st.stat}>
+              <Text style={[st.statVal, { color: Colors.primary }]}>{totalCount}</Text>
+              <Text style={st.statLabel}>Soal</Text>
+            </View>
           </View>
-          <Text style={st.motivasi}>{hasilSkor >= 70 ? 'Luar biasa! Pertahankan 🚀' : hasilSkor >= 50 ? 'Bagus! Terus tingkatkan 📈' : 'Jangan menyerah! Terus latihan 💪'}</Text>
+
+          {/* Motivasi */}
+          <View style={[st.motivasiCard, { borderColor: color + '40' }]}>
+            <Text style={{ fontSize: 20 }}>{emoji}</Text>
+            <Text style={[st.motivasi, { flex: 1 }]}>
+              {acc >= 70 ? 'Luar biasa! Pertahankan konsistensi ini! 🚀'
+               : acc >= 50 ? 'Bagus! Terus tingkatkan — kamu hampir mencapai target! 📈'
+               : 'Jangan menyerah! Setiap latihan membuatmu lebih kuat! 💪'}
+            </Text>
+          </View>
+
           <TouchableOpacity style={[st.bigBtn, { backgroundColor: Colors.primary }]} onPress={() => router.back()}>
-            <Ionicons name="book-outline" size={18} color="#fff" /><Text style={st.bigBtnText}>Latihan Lagi</Text>
+            <Ionicons name="book-outline" size={18} color="#fff" />
+            <Text style={st.bigBtnText}>Latihan Lagi</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[st.bigBtn, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border }]} onPress={() => router.replace('/(tabs)')}>
-            <Ionicons name="home-outline" size={18} color={Colors.textSecondary} /><Text style={[st.bigBtnText, { color: Colors.textSecondary }]}>Ke Beranda</Text>
+            <Ionicons name="home-outline" size={18} color={Colors.textSecondary} />
+            <Text style={[st.bigBtnText, { color: Colors.textSecondary }]}>Ke Beranda</Text>
           </TouchableOpacity>
           <View style={{ height: 60 }} />
         </Animated.ScrollView>
@@ -203,10 +285,10 @@ export default function SesiScreen() {
           <View style={st.progressTrack}><View style={[st.progressFill, { width: `${prog * 100}%` as any }]} /></View>
           <Text style={st.progressLabel}>{index + 1} / {total}</Text>
         </View>
-        <View style={st.timerBadge}>
-          <Ionicons name="timer-outline" size={12} color={Colors.secondary} />
-          <Text style={st.timerText}>{fmt(timer)}</Text>
-        </View>
+        <Animated.View style={[st.timerBadge, { borderColor: timerColor + '40', backgroundColor: timerColor + '14', transform: [{ scale: pulseAnim }] }]}>
+          <Ionicons name={isCountdown ? 'hourglass-outline' : 'timer-outline'} size={12} color={timerColor} />
+          <Text style={[st.timerText, { color: timerColor }]}>{fmt(timer)}</Text>
+        </Animated.View>
       </View>
 
       {/* Question Grid */}
@@ -533,14 +615,15 @@ const st = StyleSheet.create({
   // Hasil
   hasilScroll: { paddingHorizontal: Spacing.lg, paddingTop: Platform.OS === 'ios' ? 80 : 60, alignItems: 'center', gap: Spacing.md },
   hasilTitle: { color: Colors.textPrimary, fontSize: FontSize.xxl, fontWeight: '900' },
-  scoreCard: { backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 2, padding: Spacing.xl, alignItems: 'center', gap: 4, width: width * 0.55 },
+  scoreCard: { backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 2, padding: Spacing.xl, alignItems: 'center', gap: 4, width: width * 0.75 },
   scoreLabel: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600', letterSpacing: 0.5 },
   scoreNum: { fontSize: 72, fontWeight: '900', letterSpacing: -2, lineHeight: 80 },
   scoreMax: { color: Colors.textMuted, fontSize: FontSize.sm },
-  statsRow: { flexDirection: 'row', gap: Spacing.xl },
+  statsRow: { flexDirection: 'row', gap: Spacing.lg },
   stat: { alignItems: 'center', gap: 4 },
   statVal: { color: Colors.textPrimary, fontSize: FontSize.xl, fontWeight: '800' },
   statLabel: { color: Colors.textMuted, fontSize: FontSize.xs },
+  motivasiCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.md, width: '100%' },
   motivasi: { color: Colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center', lineHeight: 22 },
   bigBtn: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, paddingVertical: 15, borderRadius: Radius.xl },
   bigBtnText: { color: '#fff', fontSize: FontSize.base, fontWeight: '700' },

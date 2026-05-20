@@ -1,7 +1,7 @@
 // ─── Config ───────────────────────────────────────────────────────────────────
 // Change this to your LAN IP when testing on a physical device
 // e.g. http://192.168.1.x:8000/api/v1
-export const API_BASE = 'http://192.168.18.214:8000/api/v1';
+export const API_BASE = 'http://192.168.18.224:8000/api/v1';
 
 // ─── Token Storage ────────────────────────────────────────────────────────────
 // Uses @react-native-async-storage/async-storage when available,
@@ -131,6 +131,9 @@ export const onboardingApi = {
     request('POST', '/onboarding/referral', { referral_source }),
 
   complete: () => request('POST', '/onboarding/complete'),
+
+  updateProfile: (data: { name?: string; asal_sekolah?: string; referral_source?: string }) =>
+    request('POST', '/user/profile', data),
 };
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -149,6 +152,7 @@ export interface User {
   diagnostic_completed: boolean;
   is_banned?: boolean;
   last_active?: string;
+  asal_sekolah?: string | null;
   // convenience
   is_premium?: boolean; // computed on frontend: tier === 'premium'
   subscription_tier?: string; // alias for tier

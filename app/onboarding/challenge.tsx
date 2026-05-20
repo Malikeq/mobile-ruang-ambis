@@ -8,9 +8,13 @@ import {
   Dimensions,
   Platform,
   ScrollView,
+  TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
+import { useOnboarding } from '@/contexts/OnboardingContext';
 
 const { width } = Dimensions.get('window');
 
@@ -76,7 +80,9 @@ function ChallengeCard({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ChallengeScreen() {
+  const { setSekolah: saveSekolah } = useOnboarding();
   const [selected, setSelected] = useState<string[]>([]);
+  const [sekolah,  setSekolah]  = useState('');
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
 
@@ -93,7 +99,11 @@ export default function ChallengeScreen() {
     );
   };
 
-  const handleNext = () => router.push('/onboarding/university');
+  const handleNext = () => {
+    // Save sekolah to OnboardingContext (in-memory, no AsyncStorage needed)
+    saveSekolah(sekolah.trim());
+    router.push('/onboarding/university');
+  };
 
   return (
     <View style={styles.container}>
@@ -114,6 +124,28 @@ export default function ChallengeScreen() {
             <Text style={styles.subtitle}>
               Pilih satu atau lebih — AI kami akan membuat{'\n'}program belajar yang tepat untukmu.
             </Text>
+          </View>
+
+          {/* Sekolah Input */}
+          <View style={styles.sekolahSection}>
+            <View style={styles.sekolahHeader}>
+              <View style={styles.sekolahIcon}>
+                <Ionicons name="school-outline" size={18} color={Colors.primaryLight} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sekolahTitle}>Asal Sekolah</Text>
+                <Text style={styles.sekolahDesc}>Membantu kami mempersonalisasi rekomendasimu</Text>
+              </View>
+            </View>
+            <TextInput
+              style={styles.sekolahInput}
+              value={sekolah}
+              onChangeText={setSekolah}
+              placeholder="Contoh: SMAN 1 Jakarta, MAN 2 Surabaya..."
+              placeholderTextColor={Colors.textMuted}
+              maxLength={200}
+              returnKeyType="done"
+            />
           </View>
 
           {/* Cards */}
@@ -145,7 +177,7 @@ export default function ChallengeScreen() {
           <Text style={styles.btnText}>
             {selected.length > 0
               ? `Lanjut · ${selected.length} dipilih`
-              : 'Pilih minimal satu'}
+              : 'Lewati Langkah Ini'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -177,7 +209,7 @@ const styles = StyleSheet.create({
 
   // Title
   titleSection: {
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.md,
     gap: Spacing.sm,
   },
   stepBadge: {
@@ -284,6 +316,23 @@ const styles = StyleSheet.create({
   skipHintText: {
     color: Colors.textMuted,
     fontSize: FontSize.sm,
+  },
+
+  // Sekolah
+  sekolahSection: {
+    backgroundColor: Colors.surface, borderRadius: Radius.xl,
+    borderWidth: 1.5, borderColor: Colors.primary + '30',
+    padding: Spacing.md, gap: Spacing.sm, marginBottom: Spacing.lg,
+  },
+  sekolahHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sekolahIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.primary + '20', alignItems: 'center', justifyContent: 'center' },
+  sekolahTitle: { color: Colors.textPrimary, fontSize: FontSize.base, fontWeight: '700' },
+  sekolahDesc: { color: Colors.textMuted, fontSize: FontSize.xs, lineHeight: 16, marginTop: 1 },
+  sekolahInput: {
+    backgroundColor: Colors.surfaceElevated, borderRadius: Radius.lg,
+    borderWidth: 1, borderColor: Colors.border,
+    color: Colors.textPrimary, fontSize: FontSize.sm,
+    paddingHorizontal: Spacing.md, paddingVertical: 12,
   },
 
   // Bottom

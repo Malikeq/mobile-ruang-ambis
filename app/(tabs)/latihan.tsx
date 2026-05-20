@@ -19,7 +19,7 @@ const SUBJECTS: { kode: string; nama: string; icon: IoniconName; color: string; 
   { kode:'PBM', nama:'Pemahaman Bacaan & Menulis',   icon:'document-text',color:'#8B5CF6', tags:['snbt','tps'] },
   { kode:'PK',  nama:'Pengetahuan Kuantitatif',      icon:'calculator',   color:'#EC4899', tags:['snbt','tps'] },
   { kode:'LBI', nama:'Literasi Bahasa Indonesia',    icon:'flag',         color:'#EF4444', tags:['snbt','literasi'] },
-  { kode:'LBE', nama:'Literasi Bahasa Inggris',      icon:'globe',        color:'#10B981', tags:['snbt','literasi'] },
+  { kode:'LBE', nama:'Literasi Bahasa Inggris',      icon:'globe',        color:'#3B82F6', tags:['snbt','literasi'] },
   { kode:'MAT', nama:'Matematika',                   icon:'grid',         color:'#F59E0B', tags:['tka','saintek'] },
   { kode:'FIS', nama:'Fisika',                       icon:'flash',        color:'#06B6D4', tags:['tka','saintek'] },
   { kode:'KIM', nama:'Kimia',                        icon:'nuclear',      color:'#84CC16', tags:['tka','saintek'] },
@@ -42,24 +42,27 @@ const MODES = [
   { id:'acak',      label:'Reguler',  desc:'Soal acak dari bank soal',       icon:'shuffle'  as IoniconName, color: Colors.primary   },
   { id:'per_bab',   label:'Per Bab',  desc:'Pilih bab/topik tertentu',        icon:'list'     as IoniconName, color:'#8B5CF6'         },
   { id:'tryout',    label:'Tryout',   desc:'Simulasi ujian penuh (85 soal)',  icon:'timer'    as IoniconName, color: Colors.secondary },
-  { id:'kelemahan', label:'Targeted', desc:'Fokus pada area kelemahanmu',     icon:'locate'   as IoniconName, color: Colors.success   },
+  { id:'kelemahan', label:'Targeted', desc:'Fokus pada area kelemahanmu',     icon:'locate'   as IoniconName, color: Colors.primary   },
 ];
 const COUNTS = [5, 10, 20, 30];
+const TIMER_OPTS = [5, 10, 15, 20, 30, 45, 60]; // minutes
 
 interface SubMateri { id: number; nama: string; bab: string; soal_count: number; }
 
 export default function LatihanScreen() {
   const { token } = useAuth();
-  const [screen,   setScreen]   = useState<Screen>('list');
-  const [filter,   setFilter]   = useState('snbt');
-  const [selSubj,  setSelSubj]  = useState(SUBJECTS[0]);
-  const [mode,     setMode]     = useState(MODES[0].id);  // default: 'acak'
-  const [count,    setCount]    = useState(10);
-  const [starting, setStarting] = useState(false);
-  const [mapelIds, setMapelIds] = useState<Record<string, number>>({});
+  const [screen,      setScreen]      = useState<Screen>('list');
+  const [filter,      setFilter]      = useState('snbt');
+  const [selSubj,     setSelSubj]     = useState(SUBJECTS[0]);
+  const [mode,        setMode]        = useState(MODES[0].id);
+  const [count,       setCount]       = useState(10);
+  const [timerEnabled,setTimerEnabled]= useState(false);
+  const [timerMenit,  setTimerMenit]  = useState(15);
+  const [starting,    setStarting]    = useState(false);
+  const [mapelIds,    setMapelIds]    = useState<Record<string, number>>({});
   const [subMateris,  setSubMateris]  = useState<SubMateri[]>([]);
-  const [selBab, setSelBab]     = useState<SubMateri | null>(null);
-  const [loadingBab, setLoadBab]= useState(false);
+  const [selBab,      setSelBab]      = useState<SubMateri | null>(null);
+  const [loadingBab,  setLoadBab]     = useState(false);
 
   const fade = useRef(new Animated.Value(0)).current;
 
@@ -114,7 +117,10 @@ export default function LatihanScreen() {
       const json = await res.json();
       const sesiId    = json?.data?.id;
       const totalSoal  = json?.data?.total_soal ?? count;
-      if (sesiId) { router.push(`/latihan/${sesiId}?total=${totalSoal}`); return; }
+      if (sesiId) {
+        router.push(`/latihan/${sesiId}?total=${totalSoal}&timer=${timerEnabled ? timerMenit : 0}`);
+        return;
+      }
       console.warn('mulai response:', JSON.stringify(json));
     } catch (e) { console.log('mulai error', e); }
     finally { setStarting(false); }
@@ -271,13 +277,51 @@ export default function LatihanScreen() {
             </>
           )}
 
+          {/* Timer Countdown */}
+          <Text style={s.sectionLabel}>Timer Countdown</Text>
+          <View style={[s.timerToggleRow, timerEnabled && { borderColor: '#F59E0B60' }]}>
+            <View style={{ flexDirection:'row', alignItems:'center', gap: 10, flex: 1 }}>
+              <View style={[s.timerIconWrap, { backgroundColor: timerEnabled ? '#F59E0B20' : Colors.surfaceElevated }]}>
+                <Ionicons name="hourglass-outline" size={20} color={timerEnabled ? '#F59E0B' : Colors.textMuted} />
+              </View>
+              <View>
+                <Text style={[s.timerToggleTitle, timerEnabled && { color: '#F59E0B' }]}>Aktifkan Timer</Text>
+                <Text style={s.timerToggleSub}>{timerEnabled ? `${timerMenit} menit countdown` : 'Tanpa batas waktu'}</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[s.toggleSwitch, timerEnabled && { backgroundColor: '#F59E0B' }]}
+              onPress={() => setTimerEnabled(v => !v)}
+              activeOpacity={0.8}
+            >
+              <View style={[s.toggleThumb, timerEnabled && s.toggleThumbOn]} />
+            </TouchableOpacity>
+          </View>
+
+          {timerEnabled && (
+            <>
+              <Text style={[s.sectionLabel, { color: '#F59E0B', marginTop: 6 }]}>Durasi Waktu</Text>
+              <View style={s.countRow}>
+                {TIMER_OPTS.map(m => (
+                  <TouchableOpacity key={m}
+                    style={[s.countChip, timerMenit === m && { backgroundColor: '#F59E0B', borderColor: '#F59E0B' }]}
+                    onPress={() => setTimerMenit(m)}>
+                    <Text style={[s.countVal, timerMenit === m && { color: '#fff' }]}>{m}</Text>
+                    <Text style={[s.countSub, timerMenit === m && { color: '#ffffff99' }]}>mnt</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
+
           {/* Summary */}
           <View style={[s.summaryCard, { borderColor: selSubj.color + '30' }]}>
             {[
               { label:'Mapel', val: selSubj.nama },
               { label:'Mode',  val: selMode.label, color: selMode.color },
-              { label:'Soal',  val: `${mode === 'tryout' ? 85 : count} soal · ~${mode === 'tryout' ? 85 : count * 2} menit` },
+              { label:'Soal',  val: `${mode === 'tryout' ? 85 : count} soal` },
               ...(mode === 'per_bab' && selBab ? [{ label:'Bab', val: selBab.nama }] : []),
+              { label:'Timer', val: timerEnabled ? `⏳ ${timerMenit} menit` : '∞ Tanpa batas', color: timerEnabled ? '#F59E0B' : Colors.textMuted },
             ].map((r, i, arr) => (
               <View key={i} style={[s.sumRow, i === arr.length - 1 && { borderBottomWidth: 0 }]}>
                 <Text style={s.sumLabel}>{r.label}</Text>
@@ -413,4 +457,12 @@ const s = StyleSheet.create({
   babFooter: { padding: Spacing.lg, borderTopWidth: 1, borderTopColor: Colors.border },
   emptyBab: { alignItems: 'center', gap: Spacing.md, paddingVertical: Spacing.xl },
   emptyBabText: { color: Colors.textMuted, fontSize: FontSize.sm },
+  // ── Timer Toggle ──────────────────────────────────────────────────────────
+  timerToggleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 1.5, borderColor: Colors.border, padding: Spacing.md, marginBottom: Spacing.sm },
+  timerIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  timerToggleTitle: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '700' },
+  timerToggleSub: { color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 },
+  toggleSwitch: { width: 48, height: 28, borderRadius: 14, backgroundColor: Colors.border, padding: 3, justifyContent: 'center' },
+  toggleThumb: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 2 },
+  toggleThumbOn: { alignSelf: 'flex-end' },
 });

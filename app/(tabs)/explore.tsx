@@ -6,10 +6,18 @@ import {
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 
 interface Weakness {
-  id: number; mapel: any; sub_materi: any;
-  rata_rata_skor: number; total_sesi: number;
+  id: number;
+  mapel: any;
+  sub_materi: any;
+  // backend returns these two names
+  accuracy_rate: number | null;
+  attempt_count: number;
+  // aliases also returned by backend
+  rata_rata_skor: number | null;
+  total_sesi: number;
 }
 function toStr(val: any): string {
   if (!val) return '';
@@ -67,11 +75,20 @@ const barStyles = StyleSheet.create({
 export default function AnalisisScreen() {
   const { token } = useAuth();
   const [weaknesses, setWeaknesses]   = useState<Weakness[]>([]);
-  const [mapelData, setMapelData]     = useState<MapelProgress[]>([]);
-  const [totalSkor, setTotalSkor]     = useState(0);
-  const [loading, setLoading]         = useState(true);
-  const [refreshing, setRefreshing]   = useState(false);
-  const [activeTab, setActiveTab]     = useState<'kelemahan'|'progres'|'rekomendasi'>('kelemahan');
+  const [mapelData,   setMapelData]   = useState<MapelProgress[]>([]);
+  const [totalSkor,   setTotalSkor]   = useState(0);
+  const [snbtEst,     setSnbtEst]     = useState(0);  // from backend skor_snbt_estimasi
+  const [totalSoal,   setTotalSoal]   = useState(0);  // total soal dikerjakan
+  const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [activeTab,   setActiveTab]   = useState<'kelemahan'|'progres'|'rekomendasi'|'riwayat'>('kelemahan');
+
+  // Riwayat state
+  const [riwayat,      setRiwayat]      = useState<any[]>([]);
+  const [riwayatPage,  setRiwayatPage]  = useState(1);
+  const [riwayatTotal, setRiwayatTotal] = useState(0);
+  const [riwayatLoad,  setRiwayatLoad]  = useState(false);
+  const [riwayatFetched, setRiwayatFetched] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -89,9 +106,27 @@ export default function AnalisisScreen() {
       ]);
       const dash  = await dashRes.json();
       const weak  = await weakRes.json();
-      setTotalSkor(dash?.data?.rata_rata_skor ?? 0);
-      setMapelData(dash?.data?.mapel_progress ?? []);
+      const d = dash?.data ?? {};
+
+      // Backend returns akurasi_overall (0-100), fallback to rata_rata_skor for compat
+      const skor = Number(d.akurasi_overall ?? d.rata_rata_skor ?? 0);
+      setTotalSkor(isNaN(skor) ? 0 : skor);
+      setSnbtEst(Number(d.skor_snbt_estimasi ?? 0));
+      setTotalSoal(Number(d.total_soal_dikerjakan ?? 0));
+
+      // Backend returns progres_per_mapel: [{mapel: {nama,...}, akurasi, attempt_count}]
+      // Also handle legacy mapel_progress: [{mapel: string, skor, soal_count}]
+      const rawMapel: any[] = d.progres_per_mapel ?? d.mapel_progress ?? [];
+      const mapped: MapelProgress[] = rawMapel.map((r: any) => ({
+        mapel:      typeof r.mapel === 'string' ? r.mapel : (r.mapel?.nama ?? r.mapel?.kode ?? '—'),
+        skor:       Number(r.akurasi ?? r.skor ?? 0),
+        soal_count: Number(r.attempt_count ?? r.soal_count ?? 0),
+      }));
+      setMapelData(mapped);
+
       setWeaknesses(weak?.data ?? []);
+      // Reset riwayat so it re-fetches on next tab switch
+      if (isRefresh) { setRiwayat([]); setRiwayatPage(1); setRiwayatFetched(false); }
     } catch {
       setWeaknesses([]);
       setMapelData([]);
@@ -101,15 +136,38 @@ export default function AnalisisScreen() {
     }
   };
 
+  const fetchRiwayat = async (page = 1) => {
+    if (riwayatLoad) return;
+    setRiwayatLoad(true);
+    try {
+      const res  = await fetch(`${API_BASE}/latihan/riwayat?page=${page}&per_page=15`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      });
+      const json = await res.json();
+      const items: any[] = json?.data ?? [];
+      setRiwayat(prev => page === 1 ? items : [...prev, ...items]);
+      setRiwayatTotal(json?.total ?? 0);
+      setRiwayatPage(page);
+      setRiwayatFetched(true);
+    } catch {}
+    finally { setRiwayatLoad(false); }
+  };
+
+  // Lazy-load riwayat when tab is first opened
+  useEffect(() => {
+    if (activeTab === 'riwayat' && !riwayatFetched) fetchRiwayat(1);
+  }, [activeTab]);
+
   const TABS = [
-    { id: 'kelemahan',    label: '⚠️ Kelemahan' },
-    { id: 'progres',      label: '📊 Progres' },
-    { id: 'rekomendasi',  label: '🤖 Rekomendasi' },
+    { id: 'kelemahan',   label: '⚠️ Lemah'  },
+    { id: 'progres',     label: '📊 Progres' },
+    { id: 'rekomendasi', label: '🤖 Rekomen' },
+    { id: 'riwayat',     label: '📋 Riwayat' },
   ];
 
   const REKOMENDASI = weaknesses.slice(0, 3).map(w => ({
     mapel: toStr(w.mapel), action: `Latih ulang "${toStr(w.sub_materi)}"`,
-    reason: `Skor rata-rata ${Math.round(w.rata_rata_skor)}% — di bawah target`, color: Colors.error,
+    reason: `Skor rata-rata ${Math.round(Number(w.rata_rata_skor) || 0)}% — di bawah target`, color: Colors.error,
   }));
 
   return (
@@ -130,21 +188,82 @@ export default function AnalisisScreen() {
           </View>
 
           {/* Overall score */}
-          <View style={styles.overallCard}>
-            <View style={styles.overallLeft}>
-              <Text style={styles.overallLabel}>Skor Keseluruhan</Text>
-              <Text style={[styles.overallScore, { color: totalSkor >= 70 ? Colors.success : totalSkor >= 50 ? Colors.secondary : Colors.error }]}>
-                {totalSkor > 0 ? Math.round(totalSkor) : '—'}%
-              </Text>
-              <Text style={styles.overallSub}>
-                {totalSkor >= 70 ? '🏆 Di atas rata-rata nasional' :
-                 totalSkor >= 50 ? '📈 Progres yang baik!' :
-                 totalSkor > 0   ? '💪 Masih ada ruang untuk berkembang' :
-                 'Kerjakan latihan untuk melihat analisis'}
-              </Text>
-            </View>
-            <ScoreRing value={totalSkor} color={totalSkor >= 70 ? Colors.success : totalSkor >= 50 ? Colors.secondary : Colors.error} />
-          </View>
+          {(() => {
+            const hasData = totalSkor > 0 || totalSoal > 0;
+            const c       = totalSkor >= 70 ? Colors.success : totalSkor >= 50 ? Colors.secondary : totalSkor > 0 ? Colors.error : Colors.textMuted;
+            // Use real backend SNBT estimate; fallback to local calc if 0
+            const snbt    = snbtEst > 0 ? snbtEst : totalSkor > 0 ? Math.round(400 + (totalSkor / 100) * 400) : null;
+            const label   = totalSkor >= 70 ? 'Excellent 🏆' : totalSkor >= 50 ? 'On Track 📈' : totalSkor > 0 ? 'Needs Work 💪' : 'Mulai Latihan! 🚀';
+            const badgeIcon = totalSkor >= 70 ? 'checkmark-circle' : totalSkor >= 50 ? 'trending-up' : totalSkor > 0 ? 'flash' : 'play-circle';
+            // SNBT bar: backend scale 400–1000 (range=600), clamp 0-100%
+            const snbtBarPct = snbt != null ? Math.min(100, Math.max(0, ((snbt - 400) / 600) * 100)) : 0;
+            return (
+              <View style={[styles.overallCard, { borderColor: c + '40' }]}>
+                {/* Glow blob */}
+                <View style={[styles.overallGlow, { backgroundColor: c + '14' }]} />
+
+                {/* Top: text + ring */}
+                <View style={styles.overallTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.overallLabel}>SKOR KESELURUHAN</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginTop: 4 }}>
+                      <Text style={[styles.overallScore, { color: c }]}>
+                        {totalSkor > 0 ? Math.round(totalSkor) : '—'}%
+                      </Text>
+                      {totalSkor > 0 && <Text style={[styles.overallAccLabel, { color: c }]}>akurasi</Text>}
+                    </View>
+                    <View style={[styles.overallBadge, { backgroundColor: c + '20', borderColor: c + '60' }]}>
+                      <Ionicons name={badgeIcon as any} size={12} color={c} />
+                      <Text style={[styles.overallBadgeText, { color: c }]}>{label}</Text>
+                    </View>
+                    {!hasData && (
+                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 8, lineHeight: 18 }}>
+                        Kerjakan latihan pertamamu untuk{'\n'}melihat analisis lengkap di sini!
+                      </Text>
+                    )}
+                  </View>
+                  <ScoreRing value={totalSkor} color={c} size={90} />
+                </View>
+
+                {/* SNBT estimate bar */}
+                {snbt != null && totalSkor > 0 && (
+                  <View style={styles.snbtWrap}>
+                    <View style={styles.snbtLabelRow}>
+                      <Text style={styles.snbtLabel}>Estimasi Skor SNBT</Text>
+                      <Text style={[styles.snbtValue, { color: c }]}>
+                        {snbt} <Text style={{ fontSize: 11, color: Colors.textMuted, fontWeight: '400' }}>/ 1000</Text>
+                      </Text>
+                    </View>
+                    <View style={styles.snbtTrack}>
+                      <View style={[styles.snbtFill, { width: `${snbtBarPct}%` as any, backgroundColor: c }]} />
+                      {/* Passing threshold marker at ~33% of bar = score 600 */}
+                      <View style={styles.snbtThreshold} />
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 3 }}>
+                      <Text style={styles.snbtMin}>400</Text>
+                      <Text style={styles.snbtPassMark}>↑ Pass ~600</Text>
+                      <Text style={styles.snbtMin}>1000</Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Stat pills */}
+                <View style={styles.overallPills}>
+                  {([
+                    { icon: 'school-outline',      label: 'SNBT Est.',  val: snbt != null && totalSkor > 0 ? `${snbt}` : '—' },
+                    { icon: 'document-text-outline',label: 'Dikerjakan', val: totalSoal > 0 ? `${totalSoal}` : '—' },
+                    { icon: 'alert-circle-outline', label: 'Kelemahan',  val: `${weaknesses.length}` },
+                  ] as { icon: any; label: string; val: string }[]).map((p, i) => (
+                    <View key={i} style={[styles.pill, { borderColor: c + '30' }]}>
+                      <Ionicons name={p.icon} size={14} color={c} />
+                      <Text style={[styles.pillVal, { color: c }]}>{p.val}</Text>
+                      <Text style={styles.pillLabel}>{p.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            );
+          })()}
 
           {/* DCSEF Badges */}
           <Text style={styles.sectionTitle}>Framework DCSEF</Text>
@@ -189,37 +308,70 @@ export default function AnalisisScreen() {
             <>
               {/* Kelemahan */}
               {activeTab === 'kelemahan' && (
-                <View style={styles.card}>
+                <View>
                   {weaknesses.length === 0 ? (
-                    <View style={styles.emptyTab}>
-                      <Text style={{ fontSize: 36 }}>✅</Text>
-                      <Text style={styles.emptyTabText}>Tidak ada kelemahan signifikan{'\n'}atau belum ada data latihan</Text>
+                    <View style={[styles.card, styles.emptyTab]}>
+                      <Text style={{ fontSize: 48 }}>✅</Text>
+                      <Text style={styles.emptyTabTitle}>Tidak Ada Kelemahan!</Text>
+                      <Text style={styles.emptyTabText}>
+                        Performa rata-ratamu bagus.{'\n'}Terus latihan untuk menjaga konsistensi.
+                      </Text>
                     </View>
-                  ) : weaknesses.map((w, i) => (
-                    <View key={w.id} style={[styles.weakRow, i < weaknesses.length - 1 && { borderBottomWidth: 1, borderBottomColor: Colors.border }]}>
-                      <View style={[styles.weakBadge, {
-                        backgroundColor: w.rata_rata_skor < 50 ? Colors.error + '18' : Colors.warning + '18',
-                      }]}>
-                        <Text style={styles.weakBadgeEmoji}>{w.rata_rata_skor < 50 ? '🔴' : '🟡'}</Text>
-                      </View>
-                      <View style={styles.weakInfo}>
-                        <Text style={styles.weakMapel}>{toStr(w.mapel)}</Text>
-                        <Text style={styles.weakSub}>{toStr(w.sub_materi)}</Text>
-                        <View style={styles.weakMeta}>
-                          <Text style={[styles.weakSkor, { color: w.rata_rata_skor < 50 ? Colors.error : Colors.warning }]}>
-                            {Math.round(w.rata_rata_skor)}%
-                          </Text>
-                          <Text style={styles.weakSesi}>· {w.total_sesi} sesi</Text>
-                        </View>
-                      </View>
-                      <View style={styles.progressMini}>
-                        <View style={[styles.progressMiniFill, {
-                          width: `${w.rata_rata_skor}%` as any,
-                          backgroundColor: w.rata_rata_skor < 50 ? Colors.error : Colors.warning,
-                        }]} />
-                      </View>
-                    </View>
-                  ))}
+                  ) : (
+                    <>
+                      <Text style={styles.weakHeader}>{weaknesses.length} area perlu ditingkatkan</Text>
+                      {weaknesses.map((w) => {
+                        const skor    = Math.round(Number(w.rata_rata_skor) || 0);
+                        const isCrit  = skor < 50;
+                        const c       = isCrit ? Colors.error : Colors.secondary;
+                        const gap     = Math.max(0, 70 - skor);
+                        const sevLabel= isCrit ? 'Kritis' : 'Perlu Latihan';
+                        const sevIcon = isCrit ? 'alert-circle' : 'warning';
+                        return (
+                          <View key={w.id} style={[styles.weakCard, { borderLeftColor: c }]}>
+                            {/* Header: severity badge + score */}
+                            <View style={styles.weakCardTop}>
+                              <View style={[styles.weakSevBadge, { backgroundColor: c + '18' }]}>
+                                <Ionicons name={sevIcon as any} size={12} color={c} />
+                                <Text style={[styles.weakSevText, { color: c }]}>{sevLabel}</Text>
+                              </View>
+                              <Text style={[styles.weakSkorBig, { color: c }]}>{skor}%</Text>
+                            </View>
+
+                            {/* Mapel + sub materi */}
+                            <Text style={styles.weakMapelBig}>{toStr(w.mapel)}</Text>
+                            <Text style={styles.weakSubBig}>{toStr(w.sub_materi)}</Text>
+
+                            {/* Progress bar toward 70% target */}
+                            <View style={styles.weakBarWrap}>
+                              <View style={styles.weakBarTrack}>
+                                <View style={[styles.weakBarFill, { width: `${Math.min(skor, 100)}%` as any, backgroundColor: c }]} />
+                                <View style={styles.weakBarTarget} />
+                              </View>
+                              <View style={styles.weakBarLabels}>
+                                <Text style={[styles.weakBarLbl, { color: c }]}>{skor}% sekarang</Text>
+                                <Text style={styles.weakBarLblRight}>🎯 70% target</Text>
+                              </View>
+                            </View>
+
+                            {/* Footer pills */}
+                            <View style={styles.weakCardFoot}>
+                              <View style={styles.weakFootPill}>
+                                <Ionicons name="book-outline" size={11} color={Colors.textMuted} />
+                                <Text style={styles.weakFootTxt}>{w.total_sesi} sesi</Text>
+                              </View>
+                              {gap > 0 && (
+                                <View style={[styles.weakFootPill, { borderColor: c + '50', backgroundColor: c + '0C' }]}>
+                                  <Ionicons name="arrow-up" size={11} color={c} />
+                                  <Text style={[styles.weakFootTxt, { color: c }]}>Butuh +{gap}% lagi</Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </>
+                  )}
                 </View>
               )}
 
@@ -278,6 +430,86 @@ export default function AnalisisScreen() {
                   ))}
                 </View>
               )}
+
+              {/* Riwayat */}
+              {activeTab === 'riwayat' && (
+                <View>
+                  {riwayatLoad && riwayat.length === 0 ? (
+                    <View style={styles.loadingWrap}>
+                      <ActivityIndicator color={Colors.primary} size="large" />
+                      <Text style={styles.loadingText}>Memuat riwayat...</Text>
+                    </View>
+                  ) : riwayat.length === 0 ? (
+                    <View style={[styles.card, styles.emptyTab]}>
+                      <Text style={{ fontSize: 40 }}>📋</Text>
+                      <Text style={styles.emptyTabText}>Belum ada riwayat latihan{'\n'}Yuk, mulai latihan sekarang!</Text>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.riwayatCount}>{riwayatTotal} sesi selesai</Text>
+                      {riwayat.map((r, i) => {
+                        const acc   = r.skor_raw ?? 0;
+                        const snbt  = r.skor_akhir ?? 0;
+                        const color = acc >= 70 ? Colors.success : acc >= 50 ? Colors.secondary : Colors.error;
+                        const dur   = r.durasi_detik;
+                        const durStr = dur != null
+                          ? `${String(Math.floor(dur/60)).padStart(2,'0')}:${String(dur%60).padStart(2,'0')}`
+                          : '—';
+                        const tgl = new Date(r.tanggal);
+                        const tglStr = `${tgl.getDate()}/${tgl.getMonth()+1}/${tgl.getFullYear()} ${String(tgl.getHours()).padStart(2,'0')}.${String(tgl.getMinutes()).padStart(2,'0')}`;
+                        return (
+                          <View key={r.id} style={styles.riwayatCard}>
+                            {/* Left: Mapel badge + info */}
+                            <View style={[styles.riwayatMapelBadge, { backgroundColor: color + '18' }]}>
+                              <Text style={[styles.riwayatMapelKode, { color }]}>{r.mapel_kode}</Text>
+                            </View>
+                            <View style={{ flex: 1, gap: 4 }}>
+                              <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'center' }}>
+                                <Text style={styles.riwayatMapelNama} numberOfLines={1}>{r.mapel_nama}</Text>
+                                <Text style={styles.riwayatTgl}>{tglStr}</Text>
+                              </View>
+                              {/* Score bar */}
+                              <View style={styles.riwayatBarWrap}>
+                                <View style={styles.riwayatBarTrack}>
+                                  <View style={[styles.riwayatBarFill, { width: `${acc}%` as any, backgroundColor: color }]} />
+                                </View>
+                                <Text style={[styles.riwayatPct, { color }]}>{acc}%</Text>
+                              </View>
+                              {/* Stats row */}
+                              <View style={styles.riwayatStatsRow}>
+                                <View style={styles.riwayatStat}>
+                                  <Ionicons name="school-outline" size={11} color={Colors.textMuted} />
+                                  <Text style={styles.riwayatStatTxt}>SNBT {snbt}</Text>
+                                </View>
+                                <View style={styles.riwayatStat}>
+                                  <Ionicons name="checkmark-circle-outline" size={11} color={Colors.success} />
+                                  <Text style={styles.riwayatStatTxt}>{r.total_benar}/{r.total_soal}</Text>
+                                </View>
+                                <View style={styles.riwayatStat}>
+                                  <Ionicons name="timer-outline" size={11} color={Colors.textMuted} />
+                                  <Text style={styles.riwayatStatTxt}>{durStr}</Text>
+                                </View>
+                              </View>
+                            </View>
+                          </View>
+                        );
+                      })}
+                      {/* Load more */}
+                      {riwayat.length < riwayatTotal && (
+                        <TouchableOpacity
+                          style={styles.loadMoreBtn}
+                          onPress={() => fetchRiwayat(riwayatPage + 1)}
+                          disabled={riwayatLoad}
+                        >
+                          {riwayatLoad
+                            ? <ActivityIndicator color={Colors.primary} size="small" />
+                            : <Text style={styles.loadMoreText}>Muat lebih banyak →</Text>}
+                        </TouchableOpacity>
+                      )}
+                    </>
+                  )}
+                </View>
+              )}
             </>
           )}
 
@@ -310,15 +542,32 @@ const styles = StyleSheet.create({
 
   overallCard: {
     backgroundColor: Colors.surface, borderRadius: Radius.xl,
-    borderWidth: 1.5, borderColor: Colors.border,
-    padding: Spacing.lg, flexDirection: 'row',
-    alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: Spacing.lg,
+    borderWidth: 1.5, overflow: 'hidden',
+    padding: Spacing.lg, marginBottom: Spacing.lg,
   },
-  overallLeft: { flex: 1 },
-  overallLabel: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase' },
-  overallScore: { fontSize: 48, fontWeight: '900', lineHeight: 56, letterSpacing: -1 },
+  overallGlow: { position: 'absolute', top: -40, right: -40, width: 140, height: 140, borderRadius: 70 },
+  overallTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: Spacing.md },
+  overallLabel: { color: Colors.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
+  overallScore: { fontSize: 52, fontWeight: '900', lineHeight: 58, letterSpacing: -1 },
+  overallAccLabel: { fontSize: FontSize.sm, fontWeight: '700', marginBottom: 8 },
+  overallBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', borderWidth: 1, borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 4, marginTop: 6 },
+  overallBadgeText: { fontSize: 11, fontWeight: '700' },
   overallSub: { color: Colors.textSecondary, fontSize: FontSize.xs, lineHeight: 18 },
+  // SNBT bar
+  snbtWrap: { marginBottom: Spacing.md },
+  snbtLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  snbtLabel: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600' },
+  snbtValue: { fontSize: FontSize.base, fontWeight: '800' },
+  snbtTrack: { height: 10, backgroundColor: Colors.surfaceElevated, borderRadius: 5, overflow: 'hidden', position: 'relative' },
+  snbtFill: { height: '100%', borderRadius: 5 },
+  snbtThreshold: { position: 'absolute', left: '50%' as any, top: 0, bottom: 0, width: 2, backgroundColor: Colors.textMuted + '60' },
+  snbtMin: { color: Colors.textMuted, fontSize: 9, fontWeight: '600' },
+  snbtPassMark: { color: Colors.textMuted, fontSize: 9, fontWeight: '600' },
+  // Stat pills
+  overallPills: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  pill: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 10, backgroundColor: Colors.surfaceElevated, borderRadius: Radius.lg, borderWidth: 1 },
+  pillVal: { fontSize: FontSize.sm, fontWeight: '900' },
+  pillLabel: { color: Colors.textMuted, fontSize: 9, fontWeight: '600' },
 
   sectionTitle: { color: Colors.textPrimary, fontSize: FontSize.base, fontWeight: '700', marginBottom: Spacing.sm },
 
@@ -349,6 +598,9 @@ const styles = StyleSheet.create({
   emptyTab: { alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.md },
   emptyTabText: { color: Colors.textMuted, fontSize: FontSize.sm, textAlign: 'center', lineHeight: 22 },
 
+
+  emptyTabTitle: { color: Colors.textPrimary, fontSize: FontSize.base, fontWeight: '800' },
+  // Old weak styles kept for compat
   weakRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: Spacing.md },
   weakBadge: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   weakBadgeEmoji: { fontSize: 18 },
@@ -360,6 +612,30 @@ const styles = StyleSheet.create({
   weakSesi: { color: Colors.textMuted, fontSize: FontSize.xs },
   progressMini: { width: 50, height: 6, backgroundColor: Colors.surfaceElevated, borderRadius: 3, overflow: 'hidden' },
   progressMiniFill: { height: '100%', borderRadius: 3 },
+  // New weak card styles
+  weakHeader: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '700', letterSpacing: 0.4, marginBottom: Spacing.sm, textTransform: 'uppercase' },
+  weakCard: {
+    backgroundColor: Colors.surface, borderRadius: Radius.xl,
+    borderWidth: 1, borderColor: Colors.border,
+    borderLeftWidth: 4, padding: Spacing.md,
+    marginBottom: Spacing.sm, gap: 6,
+  },
+  weakCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  weakSevBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.full },
+  weakSevText: { fontSize: 11, fontWeight: '700' },
+  weakSkorBig: { fontSize: 26, fontWeight: '900', lineHeight: 30 },
+  weakMapelBig: { color: Colors.textPrimary, fontSize: FontSize.base, fontWeight: '800' },
+  weakSubBig: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '500' },
+  weakBarWrap: { gap: 4, marginTop: 4 },
+  weakBarTrack: { height: 10, backgroundColor: Colors.surfaceElevated, borderRadius: 5, overflow: 'hidden', position: 'relative' },
+  weakBarFill: { height: '100%', borderRadius: 5 },
+  weakBarTarget: { position: 'absolute', left: '70%' as any, top: 0, bottom: 0, width: 2, backgroundColor: Colors.textMuted + '80' },
+  weakBarLabels: { flexDirection: 'row', justifyContent: 'space-between' },
+  weakBarLbl: { fontSize: 10, fontWeight: '700' },
+  weakBarLblRight: { color: Colors.textMuted, fontSize: 10, fontWeight: '600' },
+  weakCardFoot: { flexDirection: 'row', gap: Spacing.sm, marginTop: 2 },
+  weakFootPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: Colors.surfaceElevated, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border },
+  weakFootTxt: { color: Colors.textMuted, fontSize: 10, fontWeight: '600' },
 
   progresRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: Spacing.md },
   progresMapel: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '600', width: 100 },
@@ -387,5 +663,24 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary, paddingHorizontal: 16, paddingVertical: 10,
     borderRadius: Radius.lg,
   },
-  aiCtaBtnText: { color: '#fff', fontSize: FontSize.sm, fontWeight: '700' },
+  riwayatCount: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600', marginBottom: Spacing.sm, letterSpacing: 0.3 },
+  riwayatCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md,
+    backgroundColor: Colors.surface, borderRadius: Radius.xl,
+    borderWidth: 1, borderColor: Colors.border,
+    padding: Spacing.md, marginBottom: Spacing.sm,
+  },
+  riwayatMapelBadge: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  riwayatMapelKode: { fontSize: 11, fontWeight: '900' },
+  riwayatMapelNama: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '700', flex: 1, marginRight: 8 },
+  riwayatTgl: { color: Colors.textMuted, fontSize: 9, fontWeight: '600' },
+  riwayatBarWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  riwayatBarTrack: { flex: 1, height: 6, backgroundColor: Colors.surfaceElevated, borderRadius: 3, overflow: 'hidden' },
+  riwayatBarFill: { height: '100%', borderRadius: 3 },
+  riwayatPct: { width: 30, fontSize: 10, fontWeight: '800', textAlign: 'right' },
+  riwayatStatsRow: { flexDirection: 'row', gap: Spacing.md },
+  riwayatStat: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  riwayatStatTxt: { color: Colors.textMuted, fontSize: 10, fontWeight: '600' },
+  loadMoreBtn: { alignItems: 'center', paddingVertical: Spacing.md, marginBottom: Spacing.md },
+  loadMoreText: { color: Colors.primary, fontSize: FontSize.sm, fontWeight: '700' },
 });
