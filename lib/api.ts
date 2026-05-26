@@ -147,15 +147,95 @@ export interface User {
   id: number;
   name: string;
   email: string;
+  role: 'user' | 'pengamat' | 'admin';
   tier: 'free' | 'premium' | 'daily_pass';
   onboarding_completed: boolean;
   diagnostic_completed: boolean;
   is_banned?: boolean;
   last_active?: string;
   asal_sekolah?: string | null;
+  sekolah_id?: number | null;
   // convenience
-  is_premium?: boolean; // computed on frontend: tier === 'premium'
-  subscription_tier?: string; // alias for tier
+  is_premium?: boolean;
+  subscription_tier?: string;
+}
+
+// ─── Pengawas Types ───────────────────────────────────────────────────────────
+export interface Sekolah {
+  id: number;
+  nama: string;
+  slug: string;
+  kota?: string;
+  provinsi?: string;
+  npsn?: string;
+}
+
+export interface PengawasOverview {
+  sekolah: Sekolah;
+  total_siswa: number;
+  aktif_hari_ini: number;
+  aktif_minggu_ini: number;
+  tidak_aktif_7d: number;
+  avg_snbt: number;
+  sesi_minggu_ini: number;
+  streak_bagus: number;
+  tier_distribusi: Record<string, number>;
+}
+
+export interface SiswaListItem {
+  id: number;
+  name: string;
+  email: string;
+  tier: string;
+  streak_days: number;
+  points: number;
+  last_active?: string;
+  avatar_url?: string;
+  total_sesi: number;
+  avg_snbt: number;
+  sesi_7d: number;
+}
+
+export interface SiswaDetail {
+  siswa: SiswaListItem & { kampusTargets?: any[] };
+  sesi_list: Array<{ id: number; tipe: string; skor_akhir: number; skor_raw: number; created_at: string }>;
+  progres_mapel: Array<{ mapel: string; kode: string; total: number; benar: number; akurasi: number }>;
+  kelemahan: Array<{ sub_materi: string; mapel: string; accuracy_rate: number; attempt_count: number }>;
+}
+
+export interface RankingSiswa extends SiswaListItem {
+  rank: number;
+}
+
+export interface AktivitasHarian {
+  tanggal: string;
+  total_sesi: number;
+  siswa_aktif: number;
+  avg_snbt: number;
+}
+
+export interface KelemahanKelas {
+  sub_materi_id: number;
+  sub_materi: string;
+  mapel: string;
+  kode_mapel: string;
+  jumlah_siswa: number;
+  avg_akurasi: number;
+  total_attempt: number;
+  persen_siswa: number;
+}
+
+export interface AtRiskData {
+  tidak_aktif: SiswaListItem[];
+  akurasi_rendah: (SiswaListItem & { avg_akurasi: number })[];
+  belum_latihan: SiswaListItem[];
+}
+
+export interface PengawasApprovalStatus {
+  role: string;
+  status: 'pending' | 'approved' | 'rejected' | 'not_registered';
+  sekolah?: Sekolah;
+  catatan?: string;
 }
 
 export interface Kampus {
@@ -182,3 +262,58 @@ export interface DashboardData {
   streak: number;
   mapel_progress: Array<{ mapel: string; skor: number }>;
 }
+
+// ─── Pengawas API ─────────────────────────────────────────────────────────────
+export const pengawasApi = {
+  /** Register akun pengawas baru */
+  register: (payload: { name: string; email: string; password: string; sekolah_id: number; jabatan?: string }) =>
+    request<{ success: boolean; message: string }>('POST', '/pengamat/register', payload, false),
+
+  /** Cek status approval setelah login */
+  getStatus: () =>
+    request<{ success: boolean; data: PengawasApprovalStatus }>('GET', '/pengamat/status'),
+
+  /** Profil pengawas */
+  me: () =>
+    request<{ success: boolean; data: User }>('GET', '/pengamat/me'),
+
+  /** Ringkasan statistik sekolah */
+  overview: () =>
+    request<{ success: boolean; data: PengawasOverview }>('GET', '/pengamat/overview'),
+
+  /** Daftar siswa (paginated, search, sort) */
+  getSiswa: (params?: { search?: string; sort_by?: string; page?: number; per_page?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.search)  qs.set('search', params.search);
+    if (params?.sort_by) qs.set('sort_by', params.sort_by);
+    if (params?.page)    qs.set('page', String(params.page));
+    if (params?.per_page) qs.set('per_page', String(params.per_page));
+    return request<{ success: boolean; data: { data: SiswaListItem[]; current_page: number; last_page: number; total: number } }>(
+      'GET', `/pengamat/siswa?${qs}`
+    );
+  },
+
+  /** Detail 1 siswa */
+  getSiswaDetail: (siswaId: number) =>
+    request<{ success: boolean; data: SiswaDetail }>('GET', `/pengamat/siswa/${siswaId}`),
+
+  /** Ranking siswa */
+  getRanking: (periode: 'minggu' | 'bulan' | 'all' = 'minggu') =>
+    request<{ success: boolean; data: RankingSiswa[]; periode: string }>('GET', `/pengamat/ranking?periode=${periode}`),
+
+  /** Chart aktivitas harian */
+  getAktivitasHarian: (hari: 7 | 14 | 30 = 7) =>
+    request<{ success: boolean; data: AktivitasHarian[] }>('GET', `/pengamat/aktivitas-harian?hari=${hari}`),
+
+  /** Kelemahan agregat kelas */
+  getKelemahanKelas: () =>
+    request<{ success: boolean; data: KelemahanKelas[]; total_siswa: number }>('GET', '/pengamat/kelemahan-kelas'),
+
+  /** Siswa berisiko */
+  getAtRisk: () =>
+    request<{ success: boolean; data: AtRiskData; summary: Record<string, number> }>('GET', '/pengamat/at-risk'),
+
+  /** Cari sekolah (untuk register) */
+  searchSekolah: (q: string) =>
+    request<{ success: boolean; data: Sekolah[] }>('GET', `/pengamat/sekolah/list?q=${encodeURIComponent(q)}`, undefined, false),
+};

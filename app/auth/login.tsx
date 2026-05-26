@@ -34,9 +34,15 @@ export default function LoginScreen() {
     setError('');
     setLoading(true);
     try {
-      await login(email.trim(), password);
-      // Always go to dashboard — _layout only routes on cold boot
-      router.replace('/(tabs)');
+      const user = await login(email.trim(), password);
+      // Role-aware routing after login
+      if (user.role === 'pengamat') {
+        const { pengawasApi } = require('@/lib/api');
+        const res = await pengawasApi.getStatus();
+        router.replace(res.data.status === 'approved' ? '/(pengawas)' : '/pengawas-pending');
+      } else {
+        router.replace('/(tabs)');
+      }
     } catch (e: any) {
       const raw: string = e?.message ?? '';
       if (raw.toLowerCase().includes('network') || raw.toLowerCase().includes('fetch')) {
@@ -54,7 +60,7 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.glowBlue} />
       <View style={styles.glowGold} />
@@ -142,6 +148,15 @@ export default function LoginScreen() {
           >
             <Text style={styles.registerBtnText}>Daftar Gratis</Text>
           </TouchableOpacity>
+
+          {/* Pengawas link */}
+          <TouchableOpacity
+            style={styles.pengawasLink}
+            onPress={() => router.push('/pengawas-register')}
+          >
+            <Text style={styles.pengawasLinkText}>🏫 Masuk / Daftar sebagai Pengawas Sekolah</Text>
+          </TouchableOpacity>
+
         </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -228,4 +243,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   registerBtnText: { color: Colors.primaryLight, fontSize: FontSize.base, fontWeight: '700' },
+  pengawasLink: {
+    marginTop: Spacing.lg,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  pengawasLinkText: {
+    color: '#059669',
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
 });
+
