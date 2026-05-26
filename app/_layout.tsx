@@ -8,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import { Colors } from '@/constants/theme';
-import { pengawasApi } from '@/lib/api';
 
 function RootNavigator() {
   const { isLoading, isLoggedIn, user } = useAuth();
@@ -23,19 +22,8 @@ function RootNavigator() {
 
     // Role-based routing
     if (user?.role === 'pengamat') {
-      // Check approval status before routing
-      pengawasApi.getStatus()
-        .then(res => {
-          if (res.data.status === 'approved') {
-            router.replace('/(pengawas)');
-          } else {
-            router.replace('/pengawas-pending');
-          }
-        })
-        .catch(() => router.replace('/pengawas-pending'));
-    } else if (user?.role === 'admin') {
-      // Admin stays on student dashboard for now (web admin panel is separate)
-      router.replace('/(tabs)');
+      // Admin creates pengawas accounts (auto-approved) — go straight to dashboard
+      router.replace('/(pengawas)');
     } else {
       router.replace('/(tabs)');
     }
@@ -59,8 +47,6 @@ function RootNavigator() {
       <Stack.Screen name="auth" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="(pengawas)" />
-      <Stack.Screen name="pengawas-register" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-      <Stack.Screen name="pengawas-pending" options={{ animation: 'fade' }} />
       <Stack.Screen name="streak" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
       <Stack.Screen name="latihan/[sesiId]" options={{ animation: 'slide_from_right' }} />
     </Stack>
