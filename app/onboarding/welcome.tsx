@@ -161,15 +161,15 @@ export default function WelcomeScreen() {
         </Animated.Text>
       </Animated.View>
 
-      {/* Stats row */}
+      {/* Feature highlights — benefit-based, no fake numbers */}
       <Animated.View style={[styles.statsRow, { opacity: subtitleOpacity }]}>
         {[
-          { value: '10K+', label: 'Pengguna aktif' },
-          { value: '50K+', label: 'Soal tersedia' },
-          { value: '92%', label: 'Berhasil lolos' },
+          { emoji: '🤖', label: 'Analisis AI\nPersonal' },
+          { emoji: '📚', label: 'Soal SNBT\nTerstruktur' },
+          { emoji: '🎯', label: 'Prediksi\nPeluang Lolos' },
         ].map((s, i) => (
           <View key={i} style={styles.statItem}>
-            <Text style={styles.statValue}>{s.value}</Text>
+            <Text style={styles.statEmoji}>{s.emoji}</Text>
             <Text style={styles.statLabel}>{s.label}</Text>
           </View>
         ))}
@@ -290,16 +290,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  statItem: { alignItems: 'center', gap: 4 },
-  statValue: {
-    color: Colors.textPrimary,
-    fontSize: FontSize.lg,
-    fontWeight: '800',
+  statItem: { alignItems: 'center', gap: 4, flex: 1 },
+  statEmoji: {
+    fontSize: 28,
+    marginBottom: 2,
   },
   statLabel: {
     color: Colors.textMuted,
     fontSize: FontSize.xs,
     textAlign: 'center',
+    lineHeight: 16,
   },
 
   // CTA

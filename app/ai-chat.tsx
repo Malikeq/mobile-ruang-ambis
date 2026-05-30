@@ -62,27 +62,51 @@ export default function AiChatScreen() {
     setCtxReady(true);
   };
 
-  const send = async () => {
-    const q = input.trim();
-    if (!q || loading) return;
+  const isFree = user?.tier === 'free';
+
+  const sendMsg = async (text: string) => {
+    if (!text.trim() || loading) return;
+    // Client-side gate
+    if (isFree) {
+      setMsgs(prev => [...prev,
+        { role: 'user', text },
+        { role: 'ai', text: '🔒 Fitur AI Tutor hanya tersedia untuk pengguna **Premium** atau **Daily Pass**.\n\nUpgrade sekarang untuk akses tak terbatas ke AI Tutor personal! ✨' },
+      ]);
+      return;
+    }
     setInput('');
-    setMsgs(prev => [...prev, { role: 'user', text: q }]);
+    setMsgs(prev => [...prev, { role: 'user', text }]);
     setLoading(true);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     try {
       const res  = await fetch(`${API_BASE}/ai/tanya`, {
         method: 'POST', headers: H,
-        body: JSON.stringify({ soal_id: 0, pertanyaan: q }),
+        // soal_id: null → general question (no specific soal context)
+        body: JSON.stringify({ soal_id: null, pertanyaan: text }),
       });
       const json = await res.json();
-      const reply = json?.data?.jawaban ?? json?.message ?? 'Maaf, coba lagi ya.';
-      setMsgs(prev => [...prev, { role: 'ai', text: reply }]);
-    } catch {
-      setMsgs(prev => [...prev, { role: 'ai', text: 'Koneksi bermasalah. Coba lagi ya! 🔄' }]);
+      if (res.status === 403) {
+        setMsgs(prev => [...prev, { role: 'ai', text: '🔒 Fitur ini membutuhkan paket **Premium** atau **Daily Pass**.\n\nKunjungi Profil → Paket Saya untuk upgrade! ✨' }]);
+      } else if (res.status === 429) {
+        setMsgs(prev => [...prev, { role: 'ai', text: '⏳ Kamu sudah mencapai batas penggunaan AI hari ini. Coba lagi besok atau upgrade ke Premium untuk kuota lebih banyak!' }]);
+      } else if (res.status === 422) {
+        // Validation error — show detail for debugging
+        const errMsg = Object.values(json?.errors ?? {}).flat().join(' ') || json?.message || 'Validasi gagal.';
+        setMsgs(prev => [...prev, { role: 'ai', text: `❌ ${errMsg}` }]);
+      } else if (!res.ok) {
+        setMsgs(prev => [...prev, { role: 'ai', text: json?.message ?? 'Terjadi kesalahan. Coba lagi ya! 🔄' }]);
+      } else {
+        const reply = json?.data?.jawaban ?? json?.message ?? 'Maaf, coba lagi ya.';
+        setMsgs(prev => [...prev, { role: 'ai', text: reply }]);
+      }
+    } catch (err) {
+      setMsgs(prev => [...prev, { role: 'ai', text: 'Koneksi bermasalah. Periksa internet kamu ya! 🔄' }]);
     }
     setLoading(false);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
+
+  const send = () => sendMsg(input.trim());
 
   const QUICK = [
     '📊 Analisis peluang lolosku',
@@ -105,8 +129,20 @@ export default function AiChatScreen() {
             <Text style={st.headerSub}>Personalisasi untuk {user?.name?.split(' ')[0] ?? 'kamu'}</Text>
           </View>
         </View>
-        <View style={st.onlineDot} />
+        {isFree
+          ? <TouchableOpacity style={st.premiumBadge} onPress={() => router.push('/onboarding/pricing')}>
+              <Text style={st.premiumBadgeTxt}>🔒 Upgrade</Text>
+            </TouchableOpacity>
+          : <View style={st.onlineDot} />}
       </View>
+
+      {/* Premium banner for free users */}
+      {isFree && (
+        <TouchableOpacity style={st.premiumBanner} onPress={() => router.push('/onboarding/pricing')} activeOpacity={0.85}>
+          <Ionicons name="sparkles" size={14} color="#F59E0B" />
+          <Text style={st.premiumBannerTxt}>AI Tutor adalah fitur Premium. Tap untuk upgrade →</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Messages */}
       <ScrollView
@@ -148,7 +184,7 @@ export default function AiChatScreen() {
           <View style={st.quickWrap}>
             <Text style={st.quickTitle}>Tanya sesuatu:</Text>
             {QUICK.map((q, i) => (
-              <TouchableOpacity key={i} style={st.quickBtn} onPress={() => { setInput(q); }}>
+              <TouchableOpacity key={i} style={st.quickBtn} onPress={() => sendMsg(q)}>
                 <Text style={st.quickBtnText}>{q}</Text>
               </TouchableOpacity>
             ))}
@@ -230,8 +266,14 @@ const st = StyleSheet.create({
     paddingVertical: 12, color: Colors.textPrimary, fontSize: FontSize.sm, maxHeight: 100,
   },
   sendBtn: {
-    width: 46, height: 46, borderRadius: 23, backgroundColor: '#8B5CF6',
+    width: 46, height: 46, borderRadius: 23, backgroundColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#8B5CF6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 8,
+    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 8,
   },
+
+  // Premium gate
+  premiumBadge:    { backgroundColor: '#F59E0B20', borderWidth: 1, borderColor: '#F59E0B60', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4 },
+  premiumBadgeTxt: { color: '#F59E0B', fontSize: 11, fontWeight: '800' },
+  premiumBanner:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F59E0B12', borderBottomWidth: 1, borderBottomColor: '#F59E0B30', paddingHorizontal: 16, paddingVertical: 10 },
+  premiumBannerTxt:{ color: '#F59E0B', fontSize: 12, fontWeight: '700', flex: 1 },
 });

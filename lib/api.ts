@@ -1,7 +1,7 @@
 // ─── Config ───────────────────────────────────────────────────────────────────
 // Change this to your LAN IP when testing on a physical device
 // e.g. http://192.168.1.x:8000/api/v1
-export const API_BASE = 'http://192.168.18.224:8000/api/v1';
+export const API_BASE = 'http://10.106.215.35:8000/api/v1';
 
 // ─── Token Storage ────────────────────────────────────────────────────────────
 // Uses @react-native-async-storage/async-storage when available,
@@ -142,6 +142,27 @@ export const dashboardApi = {
   streak: () => request<{ data: { streak: number } }>('GET', '/dashboard/streak'),
 };
 
+// ─── Leaderboard ──────────────────────────────────────────────────────────────
+export const leaderboardApi = {
+  index:  (periode: 'minggu' | 'bulan' | 'all' = 'minggu') =>
+    request<{ data: any[] }>('GET', `/leaderboard?periode=${periode}`),
+  myRank: () =>
+    request<{ data: { rank: number; points: number; streak_days: number } }>('GET', '/leaderboard/me'),
+};
+
+// ─── Riwayat Latihan ──────────────────────────────────────────────────────────
+export const riwayatApi = {
+  list: (page = 1, perPage = 15) =>
+    request<{ data: any[]; current_page: number; last_page: number; total: number }>(
+      'GET', `/latihan/riwayat?per_page=${perPage}&page=${page}`
+    ),
+  review: (sesiId: number) =>
+    request<{ data: any[]; summary: { total: number; benar: number; salah: number; dilewati: number } }>(
+      'GET', `/latihan/${sesiId}/review`
+    ),
+};
+
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface User {
   id: number;
@@ -271,7 +292,7 @@ export const pengawasApi = {
 
   /** Cek status approval setelah login */
   getStatus: () =>
-    request<{ success: boolean; data: PengawasApprovalStatus }>('GET', '/pengamat/status'),
+    request<{ success: boolean; data: PengawasApprovalStatus }>('GET', '/pengamat/auth/status'),
 
   /** Profil pengawas */
   me: () =>
@@ -315,5 +336,5 @@ export const pengawasApi = {
 
   /** Cari sekolah (untuk register) */
   searchSekolah: (q: string) =>
-    request<{ success: boolean; data: Sekolah[] }>('GET', `/pengamat/sekolah/list?q=${encodeURIComponent(q)}`, undefined, false),
+    request<{ success: boolean; data: Sekolah[] }>('GET', `/pengamat/sekolah?q=${encodeURIComponent(q)}`, undefined, false),
 };

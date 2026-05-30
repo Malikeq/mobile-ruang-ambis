@@ -1,44 +1,20 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Animated, Dimensions, Platform, RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
+import { normalizeTarget, greetByHour, Target } from '@/lib/utils';
 import { Ionicons } from '@expo/vector-icons';
 
 
 const { width } = Dimensions.get('window');
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-// Flat shape (what TargetScoreCard expects)
-interface Target {
-  kampusLabel: string;   // display name (akronim or nama)
-  jurusanLabel: string;  // display name
-  target_nilai: number;
-  skor_saat_ini: number;
-}
-// Raw API shape (backend may return nested objects OR flat strings)
-interface TargetRaw {
-  kampus:        any;  // string | { nama: string; akronim?: string; }
-  jurusan:       any;  // string | { nama: string; passing_grade_estimate?: number; }
-  target_nilai?: number;
-  skor_saat_ini?:number;
-  passing_grade_estimate?: number;
-}
-function normalizeTarget(raw: TargetRaw): Target {
-  const k = raw.kampus;
-  const j = raw.jurusan;
-  return {
-    kampusLabel:   typeof k === 'string' ? k : (k?.akronim || k?.nama || 'PTN'),
-    jurusanLabel:  typeof j === 'string' ? j : (j?.nama || 'Jurusan'),
-    target_nilai:  raw.target_nilai ?? (typeof j === 'object' ? j?.passing_grade_estimate : 0) ?? 0,
-    skor_saat_ini: raw.skor_saat_ini ?? 0,
-  };
-}
-
+// ── Types lokal (DashData, MapelProg) — Target & normalizeTarget dari lib/utils
 interface MapelProg { mapel: string; skor: number; }
 interface DashData {
   total_soal_dijawab: number; rata_rata_skor: number;
@@ -52,10 +28,10 @@ interface DashData {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function greet(name: string) {
-  const h = new Date().getHours();
-  return `${h < 11 ? 'Pagi' : h < 15 ? 'Siang' : h < 18 ? 'Sore' : 'Malam'}, ${name.split(' ')[0]}`;
+  return `${greetByHour()}, ${name.split(' ')[0]}`;
 }
 function pct(val: number, max: number) { return Math.min(100, Math.max(0, (val / max) * 100)); }
+
 
 // ── Streak Flame Card ──────────────────────────────────────────────────────────
 function StreakCard({ streak, longest }: { streak: number; longest: number }) {
@@ -63,8 +39,8 @@ function StreakCard({ streak, longest }: { streak: number; longest: number }) {
   const flameScale = useRef(new Animated.Value(1)).current;
   const flameOp    = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    Animated.loop(
+  useFocusEffect(useCallback(() => {
+    const anim = Animated.loop(
       Animated.sequence([
         Animated.parallel([
           Animated.timing(flameScale, { toValue: 1.12, duration: 800, useNativeDriver: true }),
@@ -75,8 +51,10 @@ function StreakCard({ streak, longest }: { streak: number; longest: number }) {
           Animated.timing(flameOp,    { toValue: 1,    duration: 800, useNativeDriver: true }),
         ]),
       ])
-    ).start();
-  }, []);
+    );
+    anim.start();
+    return () => anim.stop();  // stop saat tab blur / unmount
+  }, []));
 
   // Mini 7-day calendar
   const days = Array.from({ length: 7 }, (_, i) => i < streak % 7 || streak >= 7);
@@ -216,10 +194,12 @@ export default function HomeScreen() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
+  // Gunakan useFocusEffect agar data selalu fresh saat tab ini aktif
+  // (misal: balik dari halaman latihan → streak sudah terupdate)
+  useFocusEffect(useCallback(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
     fetchAll();
-  }, []);
+  }, [token]));
 
   const fetchAll = async (isRef = false) => {
     if (isRef) setRef(true);
@@ -279,10 +259,30 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ── Streak Card ─────────────────────────────────────── */}
+          {/* ── Streak Card ───────────────────────────────────────────── */}
           <StreakCard streak={streak} longest={longest} />
 
-          {/* ── SNBT Score Hero ──────────────────────────────────── */}
+          {/* ── Quick Shortcut Row ──────────────────────────────────── */}
+          <View style={styles.shortcutRow}>
+            <TouchableOpacity style={[styles.shortcutBtn, { borderColor: '#F59E0B40' }]} onPress={() => router.push('/leaderboard')} activeOpacity={0.8}>
+              <Text style={{ fontSize: 18 }}>🏆</Text>
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={styles.shortcutLabel}>Leaderboard</Text>
+                <Text style={styles.shortcutSub}>Cek rankingmu</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color="#F59E0B" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.shortcutBtn, { borderColor: '#8B5CF640' }]} onPress={() => router.push('/ai-chat')} activeOpacity={0.8}>
+              <Text style={{ fontSize: 18 }}>🤖</Text>
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={styles.shortcutLabel}>AI Tutor</Text>
+                <Text style={styles.shortcutSub}>Tanya AI sekarang</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color="#8B5CF6" />
+            </TouchableOpacity>
+          </View>
+
+          {/* ── SNBT Score Hero ──────────────────────────────────────────── */}
           <TouchableOpacity style={styles.scoreHero} onPress={() => router.push('/peluang-lolos')} activeOpacity={0.88}>
             {/* Left: user skor */}
             <View style={styles.scoreHeroLeft}>
@@ -389,7 +389,8 @@ export default function HomeScreen() {
           <Text style={styles.sectionTitle}>Mulai Belajar</Text>
           <View style={styles.qGrid}>
             <QAction emoji="📝" label="Latihan"  color={Colors.primary}   onPress={() => router.push('/(tabs)/latihan')} />
-            <QAction emoji="⚡" label="Tryout"   color={Colors.secondary} onPress={() => router.push('/(tabs)/latihan')} />
+            <QAction emoji="🏆" label="Ranking"   color="#F59E0B"          onPress={() => router.push('/leaderboard')} />
+
             <QAction emoji="🎯" label="Peluang"  color={Colors.success}   onPress={() => router.push('/peluang-lolos')} />
             <QAction emoji="🤖" label="AI Tutor" color="#8B5CF6"          onPress={() => router.push('/ai-chat')} />
           </View>
@@ -536,7 +537,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.secondary + '15',
   },
   streakLeft: { flex: 1, gap: 4 },
-  streakBadge: { color: Colors.secondary, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  streakBadge: { color: Colors.secondary, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   streakRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
   streakFlame: { fontSize: 32 },
   streakCount: { color: Colors.secondary, fontSize: 48, fontWeight: '900', lineHeight: 56, letterSpacing: -2 },
@@ -675,6 +676,19 @@ const styles = StyleSheet.create({
   // Gap indicator below score hero
   gapIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 10, marginTop: -4 },
   gapTxt: { flex: 1, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+
+  // Quick Shortcut Row (below StreakCard)
+  shortcutRow: {
+    flexDirection: 'row', gap: 10, marginBottom: Spacing.lg,
+  },
+  shortcutBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: Radius.xl,
+    borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 10,
+    gap: 4,
+  },
+  shortcutLabel: { color: Colors.textPrimary, fontSize: 12, fontWeight: '800' },
+  shortcutSub:   { color: Colors.textMuted,  fontSize: 10, marginTop: 1 },
 });
 
 

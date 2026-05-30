@@ -9,28 +9,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
+import { normalizeTarget, targetProgress, Target } from '@/lib/utils';
 
-// Flat shape used for display
-interface Target {
-  kampusLabel: string;
-  jurusanLabel: string;
-  target_nilai: number;
-  skor_saat_ini: number;
-}
-function normalizeTarget(raw: any): Target {
-  const k = raw.kampus;
-  const j = raw.jurusan;
-  return {
-    kampusLabel:   typeof k === 'string' ? k : (k?.akronim || k?.nama || 'PTN'),
-    jurusanLabel:  typeof j === 'string' ? j : (j?.nama || 'Jurusan'),
-    target_nilai:  raw.target_nilai ?? (typeof j === 'object' ? j?.passing_grade_estimate : 0) ?? 0,
-    skor_saat_ini: raw.skor_saat_ini ?? 0,
-  };
-}
 
 function TargetCard({ target }: { target: Target }) {
-  const gap  = target.target_nilai - target.skor_saat_ini;
-  const pct  = Math.min(100, (target.skor_saat_ini / target.target_nilai) * 100);
+  const gap   = target.target_nilai - target.skor_saat_ini;
+  const pct   = targetProgress(target.skor_saat_ini, target.target_nilai);  // safe, no divide-by-zero
   const color = pct >= 80 ? Colors.success : pct >= 50 ? Colors.secondary : Colors.error;
   return (
     <View style={styles.targetCard}>
@@ -122,7 +106,8 @@ function EditProfilModal({ visible, user, token, onClose, onSaved }: {
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20} style={{ flex: 1 }}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose} />
         <View style={styles.modalSheet}>
           {/* Handle */}
@@ -326,21 +311,23 @@ export default function ProfilScreen() {
               desc="Lihat ranking nasional"
               color={Colors.secondary}
               badge="Baru"
-              onPress={() => {}}
+              onPress={() => router.push('/leaderboard')}
+
             />
             <View style={styles.divider} />
             <MenuRow
               emoji="📊" label="Riwayat Latihan"
               desc="Semua sesi yang sudah dikerjakan"
               color={Colors.primary}
-              onPress={() => {}}
+              onPress={() => router.push('/riwayat-latihan')}
+
             />
             <View style={styles.divider} />
             <MenuRow
               emoji="🔔" label="Notifikasi"
               desc="Pengingat belajar harian"
               color="#8B5CF6"
-              onPress={() => {}}
+              onPress={() => Alert.alert('🔔 Notifikasi', 'Pengingat belajar harian akan segera tersedia di versi berikutnya!', [{ text: 'OK' }])}
             />
           </View>
 

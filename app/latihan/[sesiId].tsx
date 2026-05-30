@@ -27,7 +27,7 @@ export default function SesiScreen() {
   const [index,      setIndex]      = useState(0);
   const [errorMsg,   setError]      = useState('');
   const [hasilSkor,  setHasilSkor]  = useState(0);
-  const [hasilAkhir, setHasilAkhir] = useState(0); // SNBT scale 400-800
+  const [hasilAkhir, setHasilAkhir] = useState(0); // SNBT scale 400-1000
   const [hasilBenar, setHasilBenar] = useState(0);
   const [hasilTotal, setHasilTotal] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -204,7 +204,7 @@ export default function SesiScreen() {
 
   if (phase === 'hasil') {
     const acc = hasilSkor; // 0-100
-    const snbt = hasilAkhir || Math.round(400 + (acc / 100) * 400);
+    const snbt = hasilAkhir || Math.round(400 + (acc / 100) * 600);  // correct: 400–1000
     const benarCount = hasilBenar || Object.values(results).filter(Boolean).length;
     const totalCount = hasilTotal || total;
     const color = acc >= 70 ? Colors.success : acc >= 50 ? Colors.secondary : Colors.error;
@@ -219,7 +219,7 @@ export default function SesiScreen() {
           <View style={[st.scoreCard, { borderColor: color + '50', backgroundColor: color + '08' }]}>
             <Text style={[st.scoreLabel, { color }]}>Estimasi Skor SNBT</Text>
             <Text style={[st.scoreNum, { color, fontSize: 52 }]}>{snbt}</Text>
-            <Text style={[st.scoreMax, { color: Colors.textMuted }]}>dari 800</Text>
+            <Text style={[st.scoreMax, { color: Colors.textMuted }]}>dari 1000</Text>
             <View style={{ height: 1, backgroundColor: color + '30', marginVertical: 10, width: '80%', alignSelf: 'center' }} />
             <Text style={st.scoreLabel}>Akurasi Jawaban</Text>
             <Text style={[st.scoreNum, { color, fontSize: 32 }]}>{acc}<Text style={{ fontSize: 16 }}>%</Text></Text>
@@ -258,6 +258,13 @@ export default function SesiScreen() {
           <TouchableOpacity style={[st.bigBtn, { backgroundColor: Colors.primary }]} onPress={() => router.back()}>
             <Ionicons name="book-outline" size={18} color="#fff" />
             <Text style={st.bigBtnText}>Latihan Lagi</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[st.bigBtn, { backgroundColor: '#1C2333', borderWidth: 1.5, borderColor: '#F59E0B60' }]}
+            onPress={() => router.push(`/latihan/review?sesiId=${sesiId}`)}
+          >
+            <Ionicons name="list-outline" size={18} color="#F59E0B" />
+            <Text style={[st.bigBtnText, { color: '#F59E0B' }]}>Review Jawaban</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[st.bigBtn, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border }]} onPress={() => router.replace('/(tabs)')}>
             <Ionicons name="home-outline" size={18} color={Colors.textSecondary} />

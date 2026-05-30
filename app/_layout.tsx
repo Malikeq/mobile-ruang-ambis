@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import { Colors } from '@/constants/theme';
+import { pengawasApi } from '@/lib/api';
 
 function RootNavigator() {
   const { isLoading, isLoggedIn, user } = useAuth();
@@ -22,8 +23,22 @@ function RootNavigator() {
 
     // Role-based routing
     if (user?.role === 'pengamat') {
-      // Admin creates pengawas accounts (auto-approved) — go straight to dashboard
-      router.replace('/(pengawas)');
+      // Check approval status — must use IIFE because useEffect can't be async
+      (async () => {
+        try {
+          const statusRes = await pengawasApi.getStatus();
+          const status = statusRes.data?.status;
+          if (status === 'approved') {
+            router.replace('/(pengawas)');
+          } else {
+            // pending or rejected — show waiting screen
+            router.replace('/pengawas-pending');
+          }
+        } catch {
+          // If status check fails, go to pending screen to be safe
+          router.replace('/pengawas-pending');
+        }
+      })();
     } else {
       router.replace('/(tabs)');
     }
@@ -47,8 +62,14 @@ function RootNavigator() {
       <Stack.Screen name="auth" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="(pengawas)" />
-      <Stack.Screen name="streak" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-      <Stack.Screen name="latihan/[sesiId]" options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="pengawas-pending" />
+      <Stack.Screen name="pengawas-register" />
+      <Stack.Screen name="streak"              options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+      <Stack.Screen name="leaderboard"         options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="ai-chat"             options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="riwayat-latihan"     options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="latihan/[sesiId]"    options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="latihan/review"      options={{ animation: 'slide_from_right' }} />
     </Stack>
   );
 }

@@ -9,10 +9,11 @@ export const PW_GREEN_L = '#10B981';
 export const PW_BG      = Colors.background;
 
 const TABS = [
-  { name: 'index',      label: 'Beranda',  icon: 'home',          iconActive: 'home' },
-  { name: 'siswa',      label: 'Siswa',    icon: 'people-outline', iconActive: 'people' },
+  { name: 'index',      label: 'Beranda',  icon: 'home',             iconActive: 'home' },
+  { name: 'siswa',      label: 'Siswa',    icon: 'people-outline',   iconActive: 'people' },
+  { name: 'ranking',    label: 'Ranking',  icon: 'trophy-outline',   iconActive: 'trophy' },
   { name: 'analisis',   label: 'Analisis', icon: 'bar-chart-outline', iconActive: 'bar-chart' },
-  { name: 'pengaturan', label: 'Profil',   icon: 'person-outline', iconActive: 'person' },
+  { name: 'pengaturan', label: 'Profil',   icon: 'person-outline',   iconActive: 'person' },
 ];
 
 export default function PengawasLayout() {
@@ -23,6 +24,7 @@ export default function PengawasLayout() {
     >
       <Tabs.Screen name="index"      options={{ title: 'Beranda' }} />
       <Tabs.Screen name="siswa"      options={{ title: 'Siswa' }} />
+      <Tabs.Screen name="ranking"    options={{ title: 'Ranking' }} />
       <Tabs.Screen name="analisis"   options={{ title: 'Analisis' }} />
       <Tabs.Screen name="pengaturan" options={{ title: 'Profil' }} />
       {/* Hidden screens (navigated to from within tabs) */}
