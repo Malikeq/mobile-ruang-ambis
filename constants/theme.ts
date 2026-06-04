@@ -27,6 +27,10 @@ export const Colors = {
   warning: '#F59E0B',
   error: '#EF4444',
 
+  // AI features (tutor, chat bubbles)
+  aiAccent: '#8B5CF6',
+  aiAccentDark: '#7C3AED',
+
   // Gradients (used as array pairs)
   gradientBlue: ['#1A56DB', '#1E3A8A'] as const,
   gradientGold: ['#F59E0B', '#B45309'] as const,

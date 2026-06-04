@@ -1,13 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Animated, Platform, ActivityIndicator, Dimensions, Alert,
+  Animated, ActivityIndicator, Dimensions, Alert, Platform, BackHandler,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { shareSesiResult } from '@/lib/share-result';
+import { ReviewCtaBanner } from '@/components/ReviewCtaBanner';
 
 const { width } = Dimensions.get('window');
 
@@ -17,7 +20,9 @@ type Phase = 'loading' | 'soal' | 'answered' | 'submitting' | 'hasil' | 'error';
 
 export default function SesiScreen() {
   const { sesiId, total: totalParam, timer: timerParam } = useLocalSearchParams<{ sesiId: string; total?: string; timer?: string }>();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const [sharing, setSharing] = useState(false);
   const total      = parseInt(totalParam ?? '10', 10);
   const timerMenit = parseInt(timerParam  ?? '0',  10); // 0 = no countdown
   const isCountdown = timerMenit > 0;
@@ -148,6 +153,24 @@ export default function SesiScreen() {
     setPhase('hasil'); animIn();
   };
 
+  const confirmExit = useCallback(() => {
+    Alert.alert('Keluar?', 'Progress disimpan saat kamu selesai.', [
+      { text: 'Batal', style: 'cancel' },
+      { text: 'Selesai & Keluar', style: 'destructive', onPress: finishSesi },
+    ]);
+  }, [sesiId, token, total, timer]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    if (phase === 'hasil' || phase === 'loading' || phase === 'submitting' || phase === 'error') return;
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      confirmExit();
+      return true;
+    });
+    return () => sub.remove();
+  }, [phase, confirmExit]);
+
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 
   // Header timer color for countdown urgency
@@ -209,9 +232,29 @@ export default function SesiScreen() {
     const totalCount = hasilTotal || total;
     const color = acc >= 70 ? Colors.success : acc >= 50 ? Colors.secondary : Colors.error;
     const emoji = acc >= 70 ? '🏆' : acc >= 50 ? '📈' : '💪';
+    const goReview = () => router.push(`/latihan/review?sesiId=${sesiId}`);
+
+    const handleShare = async () => {
+      setSharing(true);
+      try {
+        await shareSesiResult({
+          userName: user?.name,
+          snbt,
+          accuracy: acc,
+          benar: benarCount,
+          total: totalCount,
+        });
+      } finally {
+        setSharing(false);
+      }
+    };
+
     return (
       <View style={st.container}>
-        <Animated.ScrollView style={{ opacity: fadeAnim }} contentContainerStyle={st.hasilScroll}>
+        <Animated.ScrollView
+          style={{ opacity: fadeAnim }}
+          contentContainerStyle={[st.hasilScroll, { paddingTop: insets.top + Spacing.lg }]}
+        >
           <Text style={{ fontSize: 72 }}>{emoji}</Text>
           <Text style={st.hasilTitle}>Sesi Selesai!</Text>
 
@@ -255,16 +298,25 @@ export default function SesiScreen() {
             </Text>
           </View>
 
+          <ReviewCtaBanner
+            onPress={goReview}
+            subtitle={`${totalCount - benarCount} jawaban salah · lihat pembahasan & opsi kamu per soal`}
+          />
+
+          <TouchableOpacity
+            style={[st.bigBtn, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border }]}
+            onPress={handleShare}
+            disabled={sharing}
+          >
+            {sharing
+              ? <ActivityIndicator color={Colors.primary} size="small" />
+              : <Ionicons name="share-social-outline" size={18} color={Colors.primaryLight} />}
+            <Text style={[st.bigBtnText, { color: Colors.primaryLight }]}>Bagikan Hasil</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={[st.bigBtn, { backgroundColor: Colors.primary }]} onPress={() => router.back()}>
             <Ionicons name="book-outline" size={18} color="#fff" />
             <Text style={st.bigBtnText}>Latihan Lagi</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[st.bigBtn, { backgroundColor: '#1C2333', borderWidth: 1.5, borderColor: '#F59E0B60' }]}
-            onPress={() => router.push(`/latihan/review?sesiId=${sesiId}`)}
-          >
-            <Ionicons name="list-outline" size={18} color="#F59E0B" />
-            <Text style={[st.bigBtnText, { color: '#F59E0B' }]}>Review Jawaban</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[st.bigBtn, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border }]} onPress={() => router.replace('/(tabs)')}>
             <Ionicons name="home-outline" size={18} color={Colors.textSecondary} />
@@ -282,10 +334,8 @@ export default function SesiScreen() {
   return (
     <View style={st.container}>
       {/* Header */}
-      <View style={st.header}>
-        <TouchableOpacity onPress={() => Alert.alert('Keluar?', 'Progress disimpan.', [
-          { text: 'Batal' }, { text: 'Selesai & Keluar', style: 'destructive', onPress: finishSesi },
-        ])}>
+      <View style={[st.header, { paddingTop: insets.top + Spacing.sm }]}>
+        <TouchableOpacity onPress={confirmExit}>
           <Ionicons name="close" size={22} color={Colors.textMuted} />
         </TouchableOpacity>
         <View style={st.progressWrap}>
@@ -381,14 +431,14 @@ export default function SesiScreen() {
         {answered && (
           <View style={st.aiCard}>
             <View style={st.aiHeader}>
-              <Ionicons name="sparkles" size={16} color="#8B5CF6" />
+              <Ionicons name="sparkles" size={16} color={Colors.aiAccent} />
               <Text style={st.aiTitle}>Analisis AI</Text>
               {!dcsef && !aiLoading && (
                 <TouchableOpacity style={st.aiBtn} onPress={fetchAi}>
                   <Text style={st.aiBtnText}>Tampilkan</Text>
                 </TouchableOpacity>
               )}
-              {aiLoading && <ActivityIndicator size="small" color="#8B5CF6" style={{ marginLeft: 8 }} />}
+              {aiLoading && <ActivityIndicator size="small" color={Colors.aiAccent} style={{ marginLeft: 8 }} />}
             </View>
             {!!aiError && <Text style={{ color: Colors.error, fontSize: FontSize.xs, marginTop: 6 }}>{aiError}</Text>}
             {dcsef && (
@@ -495,10 +545,10 @@ export default function SesiScreen() {
 
                 {/* F — Framework */}
                 {dcsef.output && (
-                  <View style={[st.dcsefSection, { borderLeftColor: '#8B5CF6', borderLeftWidth: 3 }]}>
+                  <View style={[st.dcsefSection, { borderLeftColor: Colors.aiAccent, borderLeftWidth: 3 }]}>
                     <View style={st.dcsefBadgeRow}>
-                      <View style={[st.dcsefBadge, { backgroundColor: '#8B5CF620' }]}>
-                        <Text style={[st.dcsefBadgeLetter, { color: '#8B5CF6' }]}>F</Text>
+                      <View style={[st.dcsefBadge, { backgroundColor: Colors.aiAccent + '20' }]}>
+                        <Text style={[st.dcsefBadgeLetter, { color: Colors.aiAccent }]}>F</Text>
                       </View>
                       <Text style={st.dcsefHead}>Framework — Jawaban Final</Text>
                     </View>
@@ -555,7 +605,7 @@ const st = StyleSheet.create({
   errorTitle: { color: Colors.textPrimary, fontSize: FontSize.xl, fontWeight: '800' },
 
   // Header
-  header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingTop: Platform.OS === 'ios' ? 56 : 44, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.border },
   progressWrap: { flex: 1, gap: 3 },
   progressTrack: { height: 5, backgroundColor: Colors.surfaceElevated, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 3 },
@@ -588,11 +638,11 @@ const st = StyleSheet.create({
   pembahasanCard: { backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, marginBottom: Spacing.md },
   pemLabel: { color: Colors.secondary, fontSize: FontSize.xs, fontWeight: '700' },
   pemText: { color: Colors.textSecondary, fontSize: FontSize.sm, lineHeight: 22 },
-  aiCard: { backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 1.5, borderColor: '#8B5CF6' + '40', padding: Spacing.md, marginBottom: Spacing.lg },
+  aiCard: { backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 1.5, borderColor: Colors.aiAccent + '40', padding: Spacing.md, marginBottom: Spacing.lg },
   aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  aiTitle: { flex: 1, color: '#8B5CF6', fontSize: FontSize.sm, fontWeight: '800' },
-  aiBtn: { backgroundColor: '#8B5CF6' + '20', borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: '#8B5CF6' + '40' },
-  aiBtnText: { color: '#8B5CF6', fontSize: FontSize.xs, fontWeight: '700' },
+  aiTitle: { flex: 1, color: Colors.aiAccent, fontSize: FontSize.sm, fontWeight: '800' },
+  aiBtn: { backgroundColor: Colors.aiAccent + '20', borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: Colors.aiAccent + '40' },
+  aiBtnText: { color: Colors.aiAccent, fontSize: FontSize.xs, fontWeight: '700' },
   aiText: { color: Colors.textSecondary, fontSize: FontSize.sm, lineHeight: 22, marginTop: Spacing.sm },
   dcsefSection: { backgroundColor: Colors.surfaceElevated, borderRadius: Radius.lg, padding: Spacing.sm, gap: 5 },
   dcsefBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
@@ -620,7 +670,7 @@ const st = StyleSheet.create({
   navNextText: { color: '#fff', fontSize: FontSize.base, fontWeight: '700' },
 
   // Hasil
-  hasilScroll: { paddingHorizontal: Spacing.lg, paddingTop: Platform.OS === 'ios' ? 80 : 60, alignItems: 'center', gap: Spacing.md },
+  hasilScroll: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xl, alignItems: 'center', gap: Spacing.md },
   hasilTitle: { color: Colors.textPrimary, fontSize: FontSize.xxl, fontWeight: '900' },
   scoreCard: { backgroundColor: Colors.surface, borderRadius: Radius.xl, borderWidth: 2, padding: Spacing.xl, alignItems: 'center', gap: 4, width: width * 0.75 },
   scoreLabel: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600', letterSpacing: 0.5 },

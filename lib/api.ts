@@ -1,7 +1,7 @@
 // ─── Config ───────────────────────────────────────────────────────────────────
 // Change this to your LAN IP when testing on a physical device
 // e.g. http://192.168.1.x:8000/api/v1
-export const API_BASE = 'http://10.106.215.35:8000/api/v1';
+export const API_BASE = 'http://192.168.29.35:8000/api/v1';
 
 // ─── Token Storage ────────────────────────────────────────────────────────────
 // Uses @react-native-async-storage/async-storage when available,
@@ -160,6 +160,37 @@ export const riwayatApi = {
     request<{ data: any[]; summary: { total: number; benar: number; salah: number; dilewati: number } }>(
       'GET', `/latihan/${sesiId}/review`
     ),
+};
+
+// ─── Payment ───────────────────────────────────────────────────────────────────
+export interface PaymentInitiateResponse {
+  transaction_id: number;
+  order_id:       string;
+  gross_amount:   number;
+  snap_token:     string;
+  client_key:     string;
+  merchant_id:    string;
+  is_production:  boolean;
+  snap_url:       string;
+}
+
+export const paymentApi = {
+  getPackages: () =>
+    request<{ data: any[] }>('GET', '/packages', undefined, false),
+
+  initiate: (package_id: number, promo_code?: string) =>
+    request<{ data: PaymentInitiateResponse }>('POST', '/payment/initiate', {
+      package_id,
+      ...(promo_code ? { promo_code } : {}),
+    }),
+
+  status: (orderId: string) =>
+    request<{ data: { status: string; package: any; midtrans_order_id: string } }>(
+      'GET', `/payment/status/${orderId}`
+    ),
+
+  applyPromo: (kode: string) =>
+    request<{ data: { diskon_persen: number } }>('POST', '/payment/promo', { kode }),
 };
 
 

@@ -1,13 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Animated, Platform, Dimensions, ActivityIndicator, Modal, Pressable,
+  Animated, Dimensions, ActivityIndicator, Modal, Pressable, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { SkeletonListRows } from '@/components/ui/Skeleton';
+import { useFeatureFlags, LIMITS } from '@/lib/feature-flags';
+import { PremiumGateModal } from '@/components/PremiumGateModal';
+
+function SesiGateModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  return (
+    <PremiumGateModal
+      visible={visible}
+      onClose={onClose}
+      feature="Batas Sesi Harian"
+      description={`Akun gratis mendapat ${LIMITS.free.sesiPerHari} sesi latihan per hari. Upgrade ke Premium untuk latihan tanpa batas.`}
+    />
+  );
+}
 
 const { width } = Dimensions.get('window');
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -40,17 +55,23 @@ const FILTERS = [
 
 const MODES = [
   { id:'acak',      label:'Reguler',  desc:'Soal acak dari bank soal',       icon:'shuffle'  as IoniconName, color: Colors.primary   },
-  { id:'per_bab',   label:'Per Bab',  desc:'Pilih bab/topik tertentu',        icon:'list'     as IoniconName, color:'#8B5CF6'         },
+  { id:'per_bab',   label:'Per Bab',  desc:'Pilih bab/topik tertentu',        icon:'list'     as IoniconName, color: Colors.aiAccent  },
   { id:'tryout',    label:'Tryout',   desc:'Simulasi ujian penuh (85 soal)',  icon:'timer'    as IoniconName, color: Colors.secondary },
   { id:'kelemahan', label:'Targeted', desc:'Fokus pada area kelemahanmu',     icon:'locate'   as IoniconName, color: Colors.primary   },
 ];
 const COUNTS = [5, 10, 20, 30];
 const TIMER_OPTS = [5, 10, 15, 20, 30, 45, 60]; // minutes
 
+/** Ruang di atas floating tab bar (pill ~64px + margin + tombol AI menonjol) */
+const TAB_BAR_CLEARANCE = 100;
+
 interface SubMateri { id: number; nama: string; bab: string; soal_count: number; }
 
 export default function LatihanScreen() {
   const { token } = useAuth();
+  const insets = useSafeAreaInsets();
+  const safeTop = { paddingTop: insets.top + Spacing.md };
+  const tabBottomPad = insets.bottom + TAB_BAR_CLEARANCE;
   const [screen,      setScreen]      = useState<Screen>('list');
   const [filter,      setFilter]      = useState('snbt');
   const [selSubj,     setSelSubj]     = useState(SUBJECTS[0]);
@@ -63,12 +84,15 @@ export default function LatihanScreen() {
   const [subMateris,  setSubMateris]  = useState<SubMateri[]>([]);
   const [selBab,      setSelBab]      = useState<SubMateri | null>(null);
   const [loadingBab,  setLoadBab]     = useState(false);
+  const [gateOpen,    setGateOpen]    = useState(false);
 
+  const { canStartNewSesi, sesiRemainingToday, refreshUsage } = useFeatureFlags();
   const fade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     fetchMapelIds();
+    refreshUsage();
   }, []);
 
   const fetchMapelIds = async () => {
@@ -96,6 +120,10 @@ export default function LatihanScreen() {
   const getMapelId = () => mapelIds[selSubj.kode] ?? 0;
 
   const handleMulai = async () => {
+    if (!canStartNewSesi) {
+      setGateOpen(true);
+      return;
+    }
     const mapelId = getMapelId();
     if (!mapelId) { console.warn('mapelId not found for kode:', selSubj.kode, 'ids:', mapelIds); return; }
     setStarting(true);
@@ -115,9 +143,21 @@ export default function LatihanScreen() {
         body: JSON.stringify(body),
       });
       const json = await res.json();
+
+      if (res.status === 403 && json?.upgrade_required) {
+        await refreshUsage();
+        setGateOpen(true);
+        return;
+      }
+      if (!res.ok) {
+        Alert.alert('Tidak bisa memulai', json?.message ?? 'Terjadi kesalahan. Coba lagi.');
+        return;
+      }
+
       const sesiId    = json?.data?.id;
       const totalSoal  = json?.data?.total_soal ?? count;
       if (sesiId) {
+        await refreshUsage();
         router.push(`/latihan/${sesiId}?total=${totalSoal}&timer=${timerEnabled ? timerMenit : 0}`);
         return;
       }
@@ -150,7 +190,7 @@ export default function LatihanScreen() {
     return (
       <View style={s.container}>
         <View style={[s.glow, { backgroundColor: selSubj.color + '10' }]} />
-        <View style={s.header}>
+        <View style={[s.header, safeTop]}>
           <TouchableOpacity style={s.backRow} onPress={() => setScreen('config')}>
             <Ionicons name="arrow-back" size={18} color={Colors.textMuted} />
             <Text style={s.backText}>Kembali</Text>
@@ -159,9 +199,15 @@ export default function LatihanScreen() {
           <Text style={s.pageSub}>{selSubj.nama}</Text>
         </View>
         {loadingBab ? (
-          <View style={s.center}><ActivityIndicator color={Colors.primary} size="large" /></View>
+          <View style={[s.babList, { paddingTop: Spacing.md, flex: 1 }]}>
+            <SkeletonListRows count={5} />
+          </View>
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.babList}>
+          <ScrollView
+            style={{ flex: 1 }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[s.babList, { paddingBottom: Spacing.md }]}
+          >
             {subMateris.length === 0 && (
               <View style={s.emptyBab}>
                 <Ionicons name="alert-circle-outline" size={40} color={Colors.textMuted} />
@@ -184,10 +230,9 @@ export default function LatihanScreen() {
                 {selBab?.id === sm.id && <Ionicons name="checkmark-circle" size={20} color={selSubj.color} />}
               </TouchableOpacity>
             ))}
-            <View style={{ height: 20 }} />
           </ScrollView>
         )}
-        <View style={s.babFooter}>
+        <View style={[s.babFooter, { paddingBottom: Spacing.lg + tabBottomPad }]}>
           <TouchableOpacity
             style={[s.startBtn, { backgroundColor: selSubj.color }, (!selBab || starting) && { opacity: 0.5 }]}
             onPress={handleMulai}
@@ -198,6 +243,7 @@ export default function LatihanScreen() {
             )}
           </TouchableOpacity>
         </View>
+        <SesiGateModal visible={gateOpen} onClose={() => setGateOpen(false)} />
       </View>
     );
   }
@@ -205,10 +251,11 @@ export default function LatihanScreen() {
   // ── Config screen ──────────────────────────────────────────────────────────
   if (screen === 'config') {
     return (
+      <>
       <View style={s.container}>
         <View style={[s.glow, { backgroundColor: selSubj.color + '10' }]} />
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
-          <TouchableOpacity style={s.backRow} onPress={() => setScreen('list')}>
+          <TouchableOpacity style={[s.backRow, safeTop]} onPress={() => setScreen('list')}>
             <Ionicons name="arrow-back" size={18} color={Colors.textMuted} />
             <Text style={s.backText}>Ganti Mapel</Text>
           </TouchableOpacity>
@@ -247,11 +294,11 @@ export default function LatihanScreen() {
 
           {/* Per Bab CTA */}
           {mode === 'per_bab' && (
-            <TouchableOpacity style={[s.babCta, { borderColor: '#8B5CF6' + '60' }]}
+            <TouchableOpacity style={[s.babCta, { borderColor: Colors.aiAccent + '60' }]}
               onPress={() => setScreen('bab')}>
-              <Ionicons name="list-outline" size={20} color="#8B5CF6" />
+              <Ionicons name="list-outline" size={20} color={Colors.aiAccent} />
               <View style={{ flex: 1 }}>
-                <Text style={[s.babCtaTitle, { color: '#8B5CF6' }]}>
+                <Text style={[s.babCtaTitle, { color: Colors.aiAccent }]}>
                   {selBab ? selBab.nama : 'Pilih Bab / Topik'}
                 </Text>
                 <Text style={s.babCtaSub}>{selBab ? selBab.bab : 'Tap untuk memilih bab'}</Text>
@@ -341,19 +388,34 @@ export default function LatihanScreen() {
               <Text style={s.startBtnText}>{mode === 'per_bab' && !selBab ? 'Pilih Bab Dulu' : `Mulai ${selMode.label}`}</Text></>
             )}
           </TouchableOpacity>
-          <View style={{ height: 120 }} />
+          {!canStartNewSesi && (
+            <Text style={s.quotaWarn}>
+              Batas {LIMITS.free.sesiPerHari} sesi/hari tercapai — upgrade untuk lanjut
+            </Text>
+          )}
+          <View style={{ height: tabBottomPad }} />
         </ScrollView>
       </View>
+      <SesiGateModal visible={gateOpen} onClose={() => setGateOpen(false)} />
+      </>
     );
   }
 
   // ── List screen ────────────────────────────────────────────────────────────
   return (
+    <>
     <View style={s.container}>
       <View style={[s.glow, { backgroundColor: Colors.primary + '0E' }]} />
-      <View style={s.header}>
+      <View style={[s.header, safeTop]}>
         <Text style={s.pageTitle}>Latihan Soal</Text>
         <Text style={s.pageSub}>Pilih mata pelajaran SNBT</Text>
+        {sesiRemainingToday !== Infinity && (
+          <Text style={s.quotaHint}>
+            {canStartNewSesi
+              ? `Gratis: ${sesiRemainingToday} sesi tersisa hari ini`
+              : `Batas ${LIMITS.free.sesiPerHari} sesi/hari — upgrade untuk lanjut`}
+          </Text>
+        )}
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -393,9 +455,11 @@ export default function LatihanScreen() {
             <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
         ))}
-        <View style={{ height: 120 }} />
+        <View style={{ height: tabBottomPad }} />
       </ScrollView>
     </View>
+    <SesiGateModal visible={gateOpen} onClose={() => setGateOpen(false)} />
+    </>
   );
 }
 
@@ -404,10 +468,12 @@ const s = StyleSheet.create({
   glow: { position: 'absolute', top: -80, right: -80, width: 200, height: 200, borderRadius: 100 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { paddingHorizontal: Spacing.lg },
-  header: { paddingTop: Platform.OS === 'ios' ? 60 : 48, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
+  header: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
   pageTitle: { color: Colors.textPrimary, fontSize: FontSize.xxl, fontWeight: '900', letterSpacing: -0.5 },
   pageSub: { color: Colors.textMuted, fontSize: FontSize.sm, marginTop: 2 },
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: Platform.OS === 'ios' ? 60 : 48, marginBottom: Spacing.md },
+  quotaHint: { color: Colors.secondary, fontSize: FontSize.xs, fontWeight: '600', marginTop: 6 },
+  quotaWarn: { color: Colors.error, fontSize: FontSize.xs, fontWeight: '600', textAlign: 'center', marginTop: Spacing.sm },
+  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.md },
   backText: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
   filterScroll: { flexGrow: 0 },
   filterContent: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm, gap: Spacing.sm, flexDirection: 'row' },

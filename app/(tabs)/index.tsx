@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Animated, Dimensions, Platform, RefreshControl,
+  Animated, Dimensions, RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 import { normalizeTarget, greetByHour, Target } from '@/lib/utils';
 import { Ionicons } from '@expo/vector-icons';
+import { SkeletonHome } from '@/components/ui/Skeleton';
 
 
 const { width } = Dimensions.get('window');
@@ -186,8 +188,10 @@ function QAction({ emoji, label, color, onPress }: { emoji: string; label: strin
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const { user, token } = useAuth();
+  const insets = useSafeAreaInsets();
   const [data,           setData]      = useState<DashData | null>(null);
   const [targets,        setTargets]   = useState<Target[]>([]);
+  const [initialLoad,    setInitialLoad] = useState(true);
   const [refreshing,     setRef]       = useState(false);
   const [skorTarget,     setSkorTarget] = useState<number | null>(null);
   const [namaTarget,     setNamaTarget] = useState<string | null>(null);
@@ -219,7 +223,10 @@ export default function HomeScreen() {
       setNamaTarget(peluang?.nama_target_utama ?? null);
     } catch {
       setData({ total_soal_dijawab: 0, rata_rata_skor: 0, streak: 0 });
-    } finally { setRef(false); }
+    } finally {
+      setRef(false);
+      setInitialLoad(false);
+    }
   };
 
   const streak   = data?.streak ?? 0;
@@ -238,9 +245,12 @@ export default function HomeScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + Spacing.md, paddingBottom: insets.bottom + 100 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchAll(true)} tintColor={Colors.primary} />}
       >
+        {initialLoad ? (
+          <SkeletonHome />
+        ) : (
         <Animated.View style={{ opacity: fadeAnim }}>
 
           {/* ── Header ───────────────────────────────────────────── */}
@@ -272,13 +282,13 @@ export default function HomeScreen() {
               </View>
               <Ionicons name="chevron-forward" size={14} color="#F59E0B" />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.shortcutBtn, { borderColor: '#8B5CF640' }]} onPress={() => router.push('/ai-chat')} activeOpacity={0.8}>
+            <TouchableOpacity style={[styles.shortcutBtn, { borderColor: Colors.aiAccent + '40' }]} onPress={() => router.push('/ai-chat')} activeOpacity={0.8}>
               <Text style={{ fontSize: 18 }}>🤖</Text>
               <View style={{ flex: 1, marginLeft: 8 }}>
                 <Text style={styles.shortcutLabel}>AI Tutor</Text>
                 <Text style={styles.shortcutSub}>Tanya AI sekarang</Text>
               </View>
-              <Ionicons name="chevron-forward" size={14} color="#8B5CF6" />
+              <Ionicons name="chevron-forward" size={14} color={Colors.aiAccent} />
             </TouchableOpacity>
           </View>
 
@@ -392,7 +402,7 @@ export default function HomeScreen() {
             <QAction emoji="🏆" label="Ranking"   color="#F59E0B"          onPress={() => router.push('/leaderboard')} />
 
             <QAction emoji="🎯" label="Peluang"  color={Colors.success}   onPress={() => router.push('/peluang-lolos')} />
-            <QAction emoji="🤖" label="AI Tutor" color="#8B5CF6"          onPress={() => router.push('/ai-chat')} />
+            <QAction emoji="🤖" label="AI Tutor" color={Colors.aiAccent}   onPress={() => router.push('/ai-chat')} />
           </View>
 
           {/* ── AI Feature Cards ─────────────────────────────────── */}
@@ -409,8 +419,19 @@ export default function HomeScreen() {
               </View>
               <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
             </TouchableOpacity>
+            {/* Foto Soal */}
+            <TouchableOpacity style={[styles.aiFeatCard, { borderColor: Colors.aiAccent + '50' }]} onPress={() => router.push('/foto-soal')} activeOpacity={0.85}>
+              <View style={[styles.aiFeatIcon, { backgroundColor: Colors.aiAccent + '20' }]}>
+                <Text style={{ fontSize: 24 }}>📷</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.aiFeatTitle}>Foto Soal → AI Pecahkan</Text>
+                <Text style={styles.aiFeatDesc}>Foto soal dari buku, dapat pembahasan langkah demi langkah</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+            </TouchableOpacity>
             {/* Analisis Lolos */}
-            <TouchableOpacity style={[styles.aiFeatCard, { borderColor: '#10B981' + '50' }]} onPress={() => router.push('/ai-chat')} activeOpacity={0.85}>
+            <TouchableOpacity style={[styles.aiFeatCard, { borderColor: '#10B981' + '50' }]} onPress={() => router.push('/peluang-lolos')} activeOpacity={0.85}>
               <View style={[styles.aiFeatIcon, { backgroundColor: '#10B981' + '20' }]}>
                 <Text style={{ fontSize: 24 }}>🎯</Text>
               </View>
@@ -444,7 +465,7 @@ export default function HomeScreen() {
             {[
               { label: 'SNBT 2026', emoji: '📝', date: '23 Apr 2026', color: Colors.primary,   days: Math.max(0,Math.ceil((new Date('2026-04-23').getTime()-Date.now())/86400000)) },
               { label: 'SNBP 2026', emoji: '🎓', date: '18 Mar 2026', color: Colors.success,   days: Math.max(0,Math.ceil((new Date('2026-03-18').getTime()-Date.now())/86400000)) },
-              { label: 'UM UGM',    emoji: '🏛️', date: '1 Jun 2026',  color: '#8B5CF6',        days: Math.max(0,Math.ceil((new Date('2026-06-01').getTime()-Date.now())/86400000)) },
+              { label: 'UM UGM',    emoji: '🏛️', date: '1 Jun 2026',  color: Colors.aiAccent,  days: Math.max(0,Math.ceil((new Date('2026-06-01').getTime()-Date.now())/86400000)) },
               { label: 'SIMAK UI', emoji: '🏫', date: '15 Jun 2026', color: '#EC4899',        days: Math.max(0,Math.ceil((new Date('2026-06-15').getTime()-Date.now())/86400000)) },
             ].map((e, i) => (
               <TouchableOpacity key={i} style={[styles.examCard, { borderColor: e.color + '50' }]} onPress={() => router.push('/streak')}>
@@ -496,8 +517,9 @@ export default function HomeScreen() {
             </View>
           )}
 
-          <View style={{ height: 150 }} />
+          <View style={{ height: 24 }} />
         </Animated.View>
+        )}
       </ScrollView>
     </View>
   );
@@ -506,7 +528,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   glow: { position: 'absolute', width: 280, height: 280, borderRadius: 140 },
-  scroll: { paddingTop: Platform.OS === 'ios' ? 60 : 48, paddingHorizontal: Spacing.lg },
+  scroll: { paddingHorizontal: Spacing.lg },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
   greeting: { color: Colors.textMuted, fontSize: FontSize.sm, marginBottom: 2 },

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
@@ -77,6 +78,9 @@ const PARTICLES = [
 ];
 
 export default function WelcomeScreen() {
+  const { user } = useAuth();
+  const canSkip = user?.onboarding_completed === true;
+
   // Main content animations
   const logoScale  = useRef(new Animated.Value(0)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
@@ -185,12 +189,14 @@ export default function WelcomeScreen() {
           <Text style={styles.btnText}>Atur Profil Belajarku  →</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => router.replace('/(tabs)')}
-          style={styles.skipBtn}
-        >
-          <Text style={styles.skipText}>Langsung masuk ke dashboard</Text>
-        </TouchableOpacity>
+        {canSkip && (
+          <TouchableOpacity
+            onPress={() => router.replace('/(tabs)')}
+            style={styles.skipBtn}
+          >
+            <Text style={styles.skipText}>Langsung masuk ke dashboard</Text>
+          </TouchableOpacity>
+        )}
       </Animated.View>
     </View>
   );

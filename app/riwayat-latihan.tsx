@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Animated, ActivityIndicator, RefreshControl,
+  Animated, RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { SkeletonRiwayatCards } from '@/components/ui/Skeleton';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ function fmtTanggal(iso: string): string {
 
 function tipeLabel(tipe: string): { label: string; color: string; emoji: string } {
   if (tipe === 'ujian')      return { label: 'Ujian',      color: '#F59E0B', emoji: '📝' };
-  if (tipe === 'diagnostic') return { label: 'Diagnostik', color: '#8B5CF6', emoji: '🔍' };
+  if (tipe === 'diagnostic') return { label: 'Diagnostik', color: Colors.aiAccent, emoji: '🔍' };
   return                            { label: 'Harian',     color: Colors.primary, emoji: '📚' };
 }
 
@@ -169,10 +170,7 @@ export default function RiwayatLatihanScreen() {
       </View>
 
       {loading ? (
-        <View style={st.center}>
-          <ActivityIndicator color={Colors.primary} size="large" />
-          <Text style={st.mutedTxt}>Memuat riwayat...</Text>
-        </View>
+        <SkeletonRiwayatCards count={4} />
       ) : list.length === 0 ? (
         <View style={st.center}>
           <Text style={{ fontSize: 52 }}>📭</Text>

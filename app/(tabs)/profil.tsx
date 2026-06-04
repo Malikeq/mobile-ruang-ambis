@@ -5,11 +5,13 @@ import {
   TextInput, KeyboardAvoidingView,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 import { normalizeTarget, targetProgress, Target } from '@/lib/utils';
+import { SkeletonProfileTargets } from '@/components/ui/Skeleton';
 
 
 function TargetCard({ target }: { target: Target }) {
@@ -166,6 +168,7 @@ function EditProfilModal({ visible, user, token, onClose, onSaved }: {
 // ── Main Screen ────────────────────────────────────────────────────────────────
 export default function ProfilScreen() {
   const { user, logout, token, refreshUser } = useAuth();
+  const insets = useSafeAreaInsets();
   const [targets,    setTargets]   = useState<Target[]>([]);
   const [loading,    setLoading]   = useState(true);
   const [loggingOut, setLO]        = useState(false);
@@ -216,7 +219,10 @@ export default function ProfilScreen() {
     <View style={styles.container}>
       <View style={styles.glow} />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + Spacing.md, paddingBottom: insets.bottom + 100 }]}
+      >
         <Animated.View style={{ opacity: fadeAnim }}>
 
           {/* ── Profile Hero ─────────────────────────────────────── */}
@@ -273,9 +279,7 @@ export default function ProfilScreen() {
           {/* ── Target PTN ──────────────────────────────────────── */}
           <Text style={styles.sectionTitle}>🎯 Target PTN & Jurusan</Text>
           {loading ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator color={Colors.primary} />
-            </View>
+            <SkeletonProfileTargets count={2} />
           ) : targets.length === 0 ? (
             <View style={styles.emptyTargets}>
               <Text style={{ fontSize: 32 }}>🏫</Text>
@@ -317,17 +321,16 @@ export default function ProfilScreen() {
             <View style={styles.divider} />
             <MenuRow
               emoji="📊" label="Riwayat Latihan"
-              desc="Semua sesi yang sudah dikerjakan"
+              desc="Semua sesi · tap kartu untuk review jawaban"
               color={Colors.primary}
               onPress={() => router.push('/riwayat-latihan')}
-
             />
             <View style={styles.divider} />
             <MenuRow
               emoji="🔔" label="Notifikasi"
-              desc="Pengingat belajar harian"
-              color="#8B5CF6"
-              onPress={() => Alert.alert('🔔 Notifikasi', 'Pengingat belajar harian akan segera tersedia di versi berikutnya!', [{ text: 'OK' }])}
+              desc="Pengingat streak & laporan mingguan"
+              color={Colors.aiAccent}
+              onPress={() => router.push('/notifikasi')}
             />
           </View>
 
@@ -374,7 +377,7 @@ export default function ProfilScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   glow: { position: 'absolute', top: -60, left: -80, width: 240, height: 240, borderRadius: 120, backgroundColor: Colors.primary + '10' },
-  scroll: { paddingTop: Platform.OS === 'ios' ? 60 : 48, paddingHorizontal: Spacing.lg },
+  scroll: { paddingHorizontal: Spacing.lg },
 
   // Hero
   hero: { alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.md },
@@ -415,8 +418,8 @@ const styles = StyleSheet.create({
     shadowColor: Colors.secondary, shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
   },
-  upgradeBannerTitle: { color: '#000', fontSize: FontSize.base, fontWeight: '800' },
-  upgradeBannerDesc:  { color: '#00000090', fontSize: FontSize.xs, marginTop: 2 },
+  upgradeBannerTitle: { color: '#1A1200', fontSize: FontSize.base, fontWeight: '800' },
+  upgradeBannerDesc:  { color: '#3D2E00', fontSize: FontSize.xs, marginTop: 2, fontWeight: '600' },
   upgradeBannerArrow: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: '#00000020', alignItems: 'center', justifyContent: 'center',

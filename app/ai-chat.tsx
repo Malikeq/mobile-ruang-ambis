@@ -4,12 +4,23 @@ import {
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFeatures } from '@/hooks/useFeatures';
+import { MarkdownText } from '@/components/ui/MarkdownText';
 
 interface Msg { role: 'user' | 'ai'; text: string; }
+
+interface AiQuota {
+  has_access: boolean;
+  limit: number;
+  used: number;
+  remaining: number;
+  tier: string;
+}
 
 function toStr(v: any): string {
   if (!v) return '';
@@ -19,30 +30,46 @@ function toStr(v: any): string {
 
 export default function AiChatScreen() {
   const { token, user } = useAuth();
+  const { can, limit }  = useFeatures();
+  const canUseAI        = can('ai_tutor');
+  const dailyLimit      = limit('ai_tanya_harian'); // -1 = unlimited
+  const insets = useSafeAreaInsets();
   const [msgs,    setMsgs]    = useState<Msg[]>([]);
   const [input,   setInput]   = useState('');
   const [loading, setLoading] = useState(false);
   const [ctxReady,setCtxReady]= useState(false);
   const [targets, setTargets] = useState<any[]>([]);
   const [weakList,setWeak]    = useState<any[]>([]);
+  const [quota,   setQuota]   = useState<AiQuota | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const H = { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' };
+
+  const fetchQuota = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/ai/quota?feature=tanya_ai`, { headers: H });
+      const json = await res.json();
+      if (res.ok && json?.data) setQuota(json.data);
+    } catch { /* ignore */ }
+  };
 
   useEffect(() => { buildContext(); }, []);
 
   const buildContext = async () => {
     try {
-      const [tRes, wRes] = await Promise.all([
+      const [tRes, wRes, qRes] = await Promise.all([
         fetch(`${API_BASE}/user/targets`, { headers: H }),
         fetch(`${API_BASE}/weakness`, { headers: H }),
+        fetch(`${API_BASE}/ai/quota?feature=tanya_ai`, { headers: H }),
       ]);
       const tJson = await tRes.json();
       const wJson = await wRes.json();
+      const qJson = qRes.ok ? await qRes.json() : null;
       const t = tJson?.data ?? [];
       const w = wJson?.data ?? [];
       setTargets(t);
       setWeak(w);
+      if (qJson?.data) setQuota(qJson.data);
 
       // Build opening greeting with context
       const targetStr = t.map((x: any, i: number) =>
@@ -62,7 +89,7 @@ export default function AiChatScreen() {
     setCtxReady(true);
   };
 
-  const isFree = user?.tier === 'free';
+  const isFree = !canUseAI;
 
   const sendMsg = async (text: string) => {
     if (!text.trim() || loading) return;
@@ -89,6 +116,7 @@ export default function AiChatScreen() {
         setMsgs(prev => [...prev, { role: 'ai', text: '🔒 Fitur ini membutuhkan paket **Premium** atau **Daily Pass**.\n\nKunjungi Profil → Paket Saya untuk upgrade! ✨' }]);
       } else if (res.status === 429) {
         setMsgs(prev => [...prev, { role: 'ai', text: '⏳ Kamu sudah mencapai batas penggunaan AI hari ini. Coba lagi besok atau upgrade ke Premium untuk kuota lebih banyak!' }]);
+        fetchQuota();
       } else if (res.status === 422) {
         // Validation error — show detail for debugging
         const errMsg = Object.values(json?.errors ?? {}).flat().join(' ') || json?.message || 'Validasi gagal.';
@@ -98,6 +126,7 @@ export default function AiChatScreen() {
       } else {
         const reply = json?.data?.jawaban ?? json?.message ?? 'Maaf, coba lagi ya.';
         setMsgs(prev => [...prev, { role: 'ai', text: reply }]);
+        fetchQuota();
       }
     } catch (err) {
       setMsgs(prev => [...prev, { role: 'ai', text: 'Koneksi bermasalah. Periksa internet kamu ya! 🔄' }]);
@@ -115,10 +144,12 @@ export default function AiChatScreen() {
     '🎯 Tips soal TPA SNBT',
   ];
 
+  const quotaLow = quota != null && quota.limit > 0 && quota.remaining <= 2;
+
   return (
     <KeyboardAvoidingView style={st.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       {/* Header */}
-      <View style={st.header}>
+      <View style={[st.header, { paddingTop: insets.top + Spacing.sm }]}>
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={22} color={Colors.textMuted} />
         </TouchableOpacity>
@@ -126,14 +157,29 @@ export default function AiChatScreen() {
           <View style={st.aiAvatar}><Ionicons name="sparkles" size={16} color="#fff" /></View>
           <View>
             <Text style={st.headerTitle}>AI Tutor</Text>
-            <Text style={st.headerSub}>Personalisasi untuk {user?.name?.split(' ')[0] ?? 'kamu'}</Text>
+            <Text style={st.headerSub}>
+              {isFree
+                ? `Personalisasi untuk ${user?.name?.split(' ')[0] ?? 'kamu'}`
+                : quota
+                  ? `${quota.remaining}/${quota.limit} pesan hari ini`
+                  : 'Memuat kuota...'}
+            </Text>
           </View>
         </View>
         {isFree
           ? <TouchableOpacity style={st.premiumBadge} onPress={() => router.push('/onboarding/pricing')}>
               <Text style={st.premiumBadgeTxt}>🔒 Upgrade</Text>
             </TouchableOpacity>
-          : <View style={st.onlineDot} />}
+          : quota ? (
+            <View style={[st.quotaBadge, quotaLow && st.quotaBadgeLow]}>
+              <Ionicons name="sparkles" size={10} color={quotaLow ? Colors.error : Colors.aiAccent} />
+              <Text style={[st.quotaBadgeTxt, quotaLow && { color: Colors.error }]}>
+                {quota.remaining}
+              </Text>
+            </View>
+          ) : (
+            <View style={st.onlineDot} />
+          )}
       </View>
 
       {/* Premium banner for free users */}
@@ -165,9 +211,13 @@ export default function AiChatScreen() {
         {msgs.map((m, i) => (
           <View key={i} style={[st.bubble, m.role === 'user' ? st.bubbleUser : st.bubbleAI]}>
             {m.role === 'ai' && (
-              <View style={st.aiBubbleIcon}><Ionicons name="sparkles" size={12} color="#8B5CF6" /></View>
+              <View style={st.aiBubbleIcon}><Ionicons name="sparkles" size={12} color={Colors.aiAccent} /></View>
             )}
-            <Text style={[st.bubbleText, m.role === 'user' && st.bubbleTextUser]}>{m.text}</Text>
+            {m.role === 'ai' ? (
+              <MarkdownText style={st.bubbleText} boldStyle={st.bubbleBold}>{m.text}</MarkdownText>
+            ) : (
+              <Text style={[st.bubbleText, st.bubbleTextUser]}>{m.text}</Text>
+            )}
           </View>
         ))}
 
@@ -195,7 +245,7 @@ export default function AiChatScreen() {
       </ScrollView>
 
       {/* Input */}
-      <View style={st.inputRow}>
+      <View style={[st.inputRow, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
         <TextInput
           style={st.input}
           value={input}
@@ -225,14 +275,30 @@ const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    paddingTop: Platform.OS === 'ios' ? 56 : 44, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md,
+    paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md,
     borderBottomWidth: 1, borderBottomColor: Colors.border,
   },
   headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  aiAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#8B5CF6', alignItems: 'center', justifyContent: 'center' },
+  aiAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: Colors.aiAccent, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '800' },
   headerSub: { color: Colors.textMuted, fontSize: 10 },
   onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.success },
+  quotaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.aiAccent + '18',
+    borderWidth: 1,
+    borderColor: Colors.aiAccent + '50',
+    borderRadius: Radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  quotaBadgeLow: {
+    backgroundColor: Colors.error + '14',
+    borderColor: Colors.error + '50',
+  },
+  quotaBadgeTxt: { color: Colors.aiAccent, fontSize: 12, fontWeight: '900' },
 
   msgList: { paddingHorizontal: Spacing.md, paddingTop: Spacing.md },
   ctxRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: Spacing.md },
@@ -244,6 +310,7 @@ const st = StyleSheet.create({
   bubbleUser: { backgroundColor: Colors.primary, alignSelf: 'flex-end' },
   aiBubbleIcon: { marginBottom: 4 },
   bubbleText: { color: Colors.textSecondary, fontSize: FontSize.sm, lineHeight: 22 },
+  bubbleBold: { color: Colors.textPrimary },
   bubbleTextUser: { color: '#fff' },
 
   typingDots: { flexDirection: 'row', gap: 4, paddingVertical: 4 },
@@ -258,7 +325,6 @@ const st = StyleSheet.create({
     flexDirection: 'row', gap: Spacing.sm, padding: Spacing.md,
     borderTopWidth: 1, borderTopColor: Colors.border,
     backgroundColor: Colors.background,
-    paddingBottom: Platform.OS === 'ios' ? 32 : Spacing.md,
   },
   input: {
     flex: 1, backgroundColor: Colors.surface, borderRadius: Radius.xl,

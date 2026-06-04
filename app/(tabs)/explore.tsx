@@ -1,12 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Animated, Platform, ActivityIndicator, RefreshControl,
+  Animated, ActivityIndicator, RefreshControl,
 } from 'react-native';
+import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { API_BASE } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { SkeletonAnalisisCard, SkeletonListRows } from '@/components/ui/Skeleton';
 
 interface Weakness {
   id: number;
@@ -74,6 +77,7 @@ const barStyles = StyleSheet.create({
 
 export default function AnalisisScreen() {
   const { token } = useAuth();
+  const insets = useSafeAreaInsets();
   const [weaknesses, setWeaknesses]   = useState<Weakness[]>([]);
   const [mapelData,   setMapelData]   = useState<MapelProgress[]>([]);
   const [totalSkor,   setTotalSkor]   = useState(0);
@@ -161,7 +165,7 @@ export default function AnalisisScreen() {
   const TABS = [
     { id: 'kelemahan',   label: '⚠️ Lemah'  },
     { id: 'progres',     label: '📊 Progres' },
-    { id: 'rekomendasi', label: '🤖 Rekomen' },
+    { id: 'rekomendasi', label: '🎯 Fokus'  },
     { id: 'riwayat',     label: '📋 Riwayat' },
   ];
 
@@ -176,15 +180,15 @@ export default function AnalisisScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + Spacing.md }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchData(true)} tintColor={Colors.primary} />}
       >
         <Animated.View style={{ opacity: fadeAnim }}>
 
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Analisis AI 🤖</Text>
-            <Text style={styles.subtitle}>Diagnosis mendalam berbasis DCSEF untuk strategi belajarmu</Text>
+            <Text style={styles.title}>Analisis Performa 📊</Text>
+            <Text style={styles.subtitle}>Kelemahan, progres per mapel, dan fokus latihan berdasarkan data kamu</Text>
           </View>
 
           {/* Overall score */}
@@ -270,7 +274,7 @@ export default function AnalisisScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dcsef}>
             {[
               { code:'D', label:'Diagnostik',    color:Colors.primary,    desc:'Identifikasi baseline' },
-              { code:'C', label:'Customized',    color:'#8B5CF6',         desc:'Rencana personal' },
+              { code:'C', label:'Customized',    color: Colors.aiAccent,  desc:'Rencana personal' },
               { code:'S', label:'Strengthening', color:Colors.secondary,  desc:'Penguatan kelemahan' },
               { code:'E', label:'Evaluation',    color:Colors.success,    desc:'Evaluasi berkala' },
               { code:'F', label:'Forecasting',   color:'#EC4899',         desc:'Prediksi kelulusan' },
@@ -300,10 +304,10 @@ export default function AnalisisScreen() {
 
           {/* Tab content */}
           {loading ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator color={Colors.primary} size="large" />
-              <Text style={styles.loadingText}>Memuat analisis...</Text>
-            </View>
+            <>
+              <SkeletonAnalisisCard />
+              <SkeletonListRows count={4} />
+            </>
           ) : (
             <>
               {/* Kelemahan */}
@@ -413,8 +417,14 @@ export default function AnalisisScreen() {
                 <View style={styles.card}>
                   {REKOMENDASI.length === 0 ? (
                     <View style={styles.emptyTab}>
-                      <Text style={{ fontSize: 36 }}>🤖</Text>
-                      <Text style={styles.emptyTabText}>Rekomendasi akan muncul{'\n'}setelah kamu latihan</Text>
+                      <Text style={{ fontSize: 36 }}>🎯</Text>
+                      <Text style={styles.emptyTabText}>Fokus latihan akan muncul{'\n'}setelah kamu menyelesaikan sesi pertama</Text>
+                      <TouchableOpacity
+                        style={styles.fokusCtaBtn}
+                        onPress={() => router.push('/(tabs)/latihan')}
+                      >
+                        <Text style={styles.fokusCtaBtnText}>Mulai Latihan →</Text>
+                      </TouchableOpacity>
                     </View>
                   ) : REKOMENDASI.map((r, i) => (
                     <View key={i} style={[styles.rekRow, i < REKOMENDASI.length - 1 && { borderBottomWidth: 1, borderBottomColor: Colors.border }]}>
@@ -426,6 +436,12 @@ export default function AnalisisScreen() {
                         <Text style={[styles.rekAction, { color: r.color }]}>{r.action}</Text>
                         <Text style={styles.rekReason}>{r.reason}</Text>
                       </View>
+                      <TouchableOpacity
+                        style={styles.rekLatihanBtn}
+                        onPress={() => router.push('/(tabs)/latihan')}
+                      >
+                        <Text style={styles.rekLatihanBtnText}>Latih</Text>
+                      </TouchableOpacity>
                     </View>
                   ))}
                 </View>
@@ -446,7 +462,12 @@ export default function AnalisisScreen() {
                     </View>
                   ) : (
                     <>
-                      <Text style={styles.riwayatCount}>{riwayatTotal} sesi selesai</Text>
+                      <View style={styles.riwayatHeaderRow}>
+                        <Text style={styles.riwayatCount}>{riwayatTotal} sesi selesai</Text>
+                        <TouchableOpacity onPress={() => router.push('/riwayat-latihan')}>
+                          <Text style={styles.riwayatSeeAll}>Lihat semua →</Text>
+                        </TouchableOpacity>
+                      </View>
                       {riwayat.map((r, i) => {
                         const acc   = r.skor_raw ?? 0;
                         const snbt  = r.skor_akhir ?? 0;
@@ -458,8 +479,12 @@ export default function AnalisisScreen() {
                         const tgl = new Date(r.tanggal);
                         const tglStr = `${tgl.getDate()}/${tgl.getMonth()+1}/${tgl.getFullYear()} ${String(tgl.getHours()).padStart(2,'0')}.${String(tgl.getMinutes()).padStart(2,'0')}`;
                         return (
-                          <View key={r.id} style={styles.riwayatCard}>
-                            {/* Left: Mapel badge + info */}
+                          <TouchableOpacity
+                            key={r.id}
+                            style={styles.riwayatCard}
+                            activeOpacity={0.85}
+                            onPress={() => router.push(`/latihan/review?sesiId=${r.id}`)}
+                          >
                             <View style={[styles.riwayatMapelBadge, { backgroundColor: color + '18' }]}>
                               <Text style={[styles.riwayatMapelKode, { color }]}>{r.mapel_kode}</Text>
                             </View>
@@ -490,8 +515,12 @@ export default function AnalisisScreen() {
                                   <Text style={styles.riwayatStatTxt}>{durStr}</Text>
                                 </View>
                               </View>
+                              <View style={styles.riwayatReviewHint}>
+                                <Ionicons name="list-outline" size={12} color={Colors.secondary} />
+                                <Text style={styles.riwayatReviewHintTxt}>Tap untuk review jawaban</Text>
+                              </View>
                             </View>
-                          </View>
+                          </TouchableOpacity>
                         );
                       })}
                       {/* Load more */}
@@ -519,12 +548,16 @@ export default function AnalisisScreen() {
               <Text style={styles.aiCtaTitle}>🤖 Tanya AI Tutor</Text>
               <Text style={styles.aiCtaDesc}>Minta penjelasan soal, strategi belajar, atau motivasi kapan saja</Text>
             </View>
-            <TouchableOpacity style={styles.aiCtaBtn}>
+            <TouchableOpacity
+              style={styles.aiCtaBtn}
+              onPress={() => router.push('/ai-chat')}
+              activeOpacity={0.85}
+            >
               <Text style={styles.aiCtaBtnText}>Chat →</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={{ height: Platform.OS === 'ios' ? 100 : 80 }} />
+          <View style={{ height: insets.bottom + 88 }} />
         </Animated.View>
       </ScrollView>
     </View>
@@ -533,8 +566,8 @@ export default function AnalisisScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  glow: { position: 'absolute', top: -60, right: -80, width: 240, height: 240, borderRadius: 120, backgroundColor: '#8B5CF6' + '12' },
-  scroll: { paddingTop: Platform.OS === 'ios' ? 60 : 48, paddingHorizontal: Spacing.lg },
+  glow: { position: 'absolute', top: -60, right: -80, width: 240, height: 240, borderRadius: 120, backgroundColor: Colors.aiAccent + '12' },
+  scroll: { paddingHorizontal: Spacing.lg },
 
   header: { marginBottom: Spacing.xl },
   title: { color: Colors.textPrimary, fontSize: FontSize.xxl, fontWeight: '900', letterSpacing: -0.5 },
@@ -649,6 +682,17 @@ const styles = StyleSheet.create({
   rekMapel: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '700' },
   rekAction: { fontSize: FontSize.sm, fontWeight: '600', marginTop: 2 },
   rekReason: { color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 },
+  rekLatihanBtn: {
+    alignSelf: 'center', backgroundColor: Colors.primary + '22',
+    borderWidth: 1, borderColor: Colors.primary + '50',
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: Radius.lg,
+  },
+  rekLatihanBtnText: { color: Colors.primaryLight, fontSize: FontSize.xs, fontWeight: '800' },
+  fokusCtaBtn: {
+    marginTop: Spacing.md, backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg, paddingVertical: 12, borderRadius: Radius.lg,
+  },
+  fokusCtaBtnText: { color: '#fff', fontSize: FontSize.sm, fontWeight: '800' },
 
   aiCta: {
     backgroundColor: Colors.primary + '18',
@@ -663,7 +707,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary, paddingHorizontal: 16, paddingVertical: 10,
     borderRadius: Radius.lg,
   },
-  riwayatCount: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600', marginBottom: Spacing.sm, letterSpacing: 0.3 },
+  aiCtaBtnText: { color: '#fff', fontSize: FontSize.sm, fontWeight: '800' },
+  riwayatHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.sm },
+  riwayatCount: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600', letterSpacing: 0.3 },
+  riwayatSeeAll: { color: Colors.primaryLight, fontSize: FontSize.xs, fontWeight: '700' },
   riwayatCard: {
     flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md,
     backgroundColor: Colors.surface, borderRadius: Radius.xl,
@@ -681,6 +728,8 @@ const styles = StyleSheet.create({
   riwayatStatsRow: { flexDirection: 'row', gap: Spacing.md },
   riwayatStat: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   riwayatStatTxt: { color: Colors.textMuted, fontSize: 10, fontWeight: '600' },
+  riwayatReviewHint: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  riwayatReviewHintTxt: { color: Colors.secondary, fontSize: 10, fontWeight: '700' },
   loadMoreBtn: { alignItems: 'center', paddingVertical: Spacing.md, marginBottom: Spacing.md },
   loadMoreText: { color: Colors.primary, fontSize: FontSize.sm, fontWeight: '700' },
 });
